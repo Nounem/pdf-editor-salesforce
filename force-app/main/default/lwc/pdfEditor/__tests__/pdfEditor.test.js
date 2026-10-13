@@ -4,11 +4,13 @@ import { loadScript } from 'lightning/platformResourceLoader';
 import listRecordPdfs from '@salesforce/apex/PdfEditorController.listRecordPdfs';
 import loadSmallPdf from '@salesforce/apex/PdfEditorController.loadSmallPdf';
 import saveCopy from '@salesforce/apex/PdfEditorController.saveCopy';
+import LightningConfirm from 'lightning/confirm';
 
 jest.mock('lightning/platformResourceLoader', () => ({ loadScript: jest.fn() }), { virtual: true });
 jest.mock('@salesforce/apex/PdfEditorController.listRecordPdfs', () => ({ default: jest.fn() }), { virtual: true });
 jest.mock('@salesforce/apex/PdfEditorController.loadSmallPdf', () => ({ default: jest.fn() }), { virtual: true });
 jest.mock('@salesforce/apex/PdfEditorController.saveCopy', () => ({ default: jest.fn() }), { virtual: true });
+jest.mock('lightning/confirm', () => ({ __esModule: true, default: { open: jest.fn() } }), { virtual: true });
 
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 const viewport = { width: 400, height: 500, convertToPdfPoint: (x, y) => [x, 500 - y], convertToViewportPoint: (x, y) => [x, 500 - y] };
@@ -90,4 +92,20 @@ it('prevents saving an open document to a different record after navigation', as
     const save = [...element.shadowRoot.querySelectorAll('lightning-button')].find((button) => button.label === 'Enregistrer une copie');
     expect(save.disabled).toBe(true);
     expect(element.shadowRoot.querySelector('[role="alert"]').textContent).toContain('enregistrement a changé');
+});
+
+it('asks before closing unsaved work and prevents closing during a save', async () => {
+    const element = await mountAndOpen();
+    LightningConfirm.open.mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+    await expect(element.confirmClose()).resolves.toBe(false);
+    await expect(element.confirmClose()).resolves.toBe(true);
+    let finishSave;
+    saveCopy.mockImplementation(() => new Promise((resolve) => { finishSave = resolve; }));
+    [...element.shadowRoot.querySelectorAll('lightning-button')].find((button) => button.label === 'Enregistrer une copie').click();
+    await flush();
+    await expect(element.confirmClose()).rejects.toThrow('Attendez la fin du traitement');
+    finishSave({ documentId: '069copy', versionId: '068copy' });
+    await flush(); await flush();
+    await expect(element.confirmClose()).resolves.toBe(true);
+    expect(LightningConfirm.open).toHaveBeenCalledTimes(2);
 });

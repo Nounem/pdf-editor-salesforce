@@ -2,4 +2,5 @@
 <PermissionSet xmlns="http://soap.sforce.com/2006/04/metadata">
     <classAccesses><apexClass>PdfEditorController</apexClass><enabled>true</enabled></classAccesses>
     <label>LovePdfSales — Éditeur PDF</label>
+    <tabSettings><tab>PDF_Editor</tab><visibility>Visible</visibility></tabSettings>
 </PermissionSet>

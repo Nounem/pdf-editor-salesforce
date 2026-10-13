@@ -1,6 +1,19 @@
 # PDF Editor
 
-Prototype d’éditeur PDF en Lightning Web Component. Il permet de compléter un PDF depuis une page d’enregistrement Salesforce, puis d’enregistrer **une copie** dans Salesforce Files.
+Prototype d’éditeur PDF en Lightning Web Component. Il permet de compléter un PDF depuis une page d’enregistrement Salesforce ou une **page d’application dédiée**, puis d’enregistrer **une copie** dans Salesforce Files.
+
+## Ajouter l’éditeur à Capitole Énergie
+
+Le projet fournit la page d’application **Éditeur PDF** (`PDF_Editor_App`) et son onglet Lightning **Éditeur PDF** (`PDF_Editor`). L’application Capitole Énergie existante n’est pas incluse ni modifiée par le déploiement.
+
+1. Déployer le projet, puis attribuer le Permission Set **LovePdfSales — Éditeur PDF** (`PDF_Editor_User`) aux utilisateurs concernés. Il donne accès au contrôleur Apex et rend l’onglet visible ; les droits métier sur les enregistrements et fichiers restent nécessaires.
+2. Dans **Configuration → Gestionnaire d’applications**, trouver **Capitole Énergie**, puis **Modifier**.
+3. Ouvrir **Éléments de navigation**, ajouter **Éditeur PDF** aux éléments sélectionnés, choisir sa position et enregistrer.
+4. Recharger Capitole Énergie et ouvrir l’onglet **Éditeur PDF**. Rechercher un compte, le sélectionner et cliquer sur **Ouvrir l’éditeur**. Les PDF proposés et les copies enregistrées sont liés à ce compte.
+
+La page est livrée pour les **comptes (`Account`)**, sur ordinateur. Pour rechercher un autre objet, ouvrir **Configuration → Générateur d’applications Lightning → Éditeur PDF → Modifier**, sélectionner le composant **PDF Editor — Page d’application**, puis modifier **Nom API de l’objet à rechercher** et **Libellé du sélecteur**. Par exemple : `Opportunity` et `Opportunité`. L’objet doit être pris en charge par le [sélecteur d’enregistrements Lightning](https://developer.salesforce.com/docs/platform/lightning-component-reference/guide/lightning-record-picker) et accessible à l’utilisateur. Enregistrer la page.
+
+Le bouton **Changer d’enregistrement** demande confirmation si des modifications ne sont pas enregistrées. Il conserve la session en cas d’annulation et bloque le changement pendant un traitement, pour éviter d’affecter une copie à un autre enregistrement.
 
 ## Charte Salesforce et SLDS 2
 
@@ -47,7 +60,7 @@ Le bouton ouvre **GitHub Salesforce Deploy Tool**, avec la cible **Production / 
 1. Publier ce projet dans [Nounem/pdf-editor-salesforce](https://github.com/Nounem/pdf-editor-salesforce) avec `sfdx-project.json` et `force-app` à la racine. Inclure la ressource compilée `force-app/main/default/staticresources/lovePdfEngine.resource` et toutes les métadonnées ; aucune compilation npm n’est effectuée par le bouton.
 2. Cliquer sur le bouton : **Owner** (`Nounem`) et **Repository** (`pdf-editor-salesforce`) sont préremplis. Conserver **Production / Developer**, préciser éventuellement **Branch/Tag/Commit**, puis se connecter à l’organisation de production souhaitée.
 3. Vérifier les composants proposés et lancer **Deploy**. Les exigences de tests Apex et de couverture de Salesforce restent applicables en production.
-4. Après le déploiement, attribuer le Permission Set **LovePdfSales — Éditeur PDF** aux utilisateurs concernés et ajouter le composant à leur page d’enregistrement dans Lightning App Builder.
+4. Après le déploiement, attribuer le Permission Set **LovePdfSales — Éditeur PDF** aux utilisateurs concernés, puis ajouter l’onglet à Capitole Énergie comme indiqué ci-dessus, ou placer le composant sur une page d’enregistrement dans Lightning App Builder.
 
 **Source du déploiement :** le bouton utilise le dépôt [Nounem/pdf-editor-salesforce](https://github.com/Nounem/pdf-editor-salesforce). Les fichiers à déployer doivent y être publiés ; les modifications présentes uniquement sur votre ordinateur ne sont pas récupérées par le bouton.
 
@@ -119,6 +132,9 @@ Pour régénérer les quatre captures à partir du composant et du moteur compil
 | Fichier / dossier | Rôle |
 |---|---|
 | `force-app/main/default/lwc/pdfEditor/` | Interface et coordination des appels Salesforce |
+| `force-app/main/default/lwc/pdfEditorApp/` | Sélection d’un enregistrement pour la page d’application |
+| `force-app/main/default/flexipages/PDF_Editor_App.flexipage-meta.xml` | Page d’application Lightning de l’éditeur |
+| `force-app/main/default/tabs/PDF_Editor.tab-meta.xml` | Onglet à ajouter à Capitole Énergie |
 | `force-app/main/default/lwc/pdfEditState/` | État, commandes, historique, encodage binaire |
 | `scripts/engine-entry.js` | Adaptateur PDF.js/pdf-lib et refus des formats hors périmètre |
 | `force-app/main/default/classes/PdfEditorController.cls` | Contrôles d’accès et transactions Files |

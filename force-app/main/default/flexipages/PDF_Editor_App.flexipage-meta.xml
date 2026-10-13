@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<FlexiPage xmlns="http://soap.sforce.com/2006/04/metadata">
+    <description>Éditeur PDF avec sélection d’un enregistrement. À ajouter à la navigation de Capitole Énergie.</description>
+    <flexiPageRegions>
+        <itemInstances>
+            <componentInstance>
+                <componentInstanceProperties><name>objectApiName</name><value>Account</value></componentInstanceProperties>
+                <componentInstanceProperties><name>pickerLabel</name><value>Compte</value></componentInstanceProperties>
+                <componentName>c:pdfEditorApp</componentName>
+                <identifier>c_pdfEditorApp</identifier>
+            </componentInstance>
+        </itemInstances>
+        <name>main</name>
+        <type>Region</type>
+    </flexiPageRegions>
+    <masterLabel>Éditeur PDF</masterLabel>
+    <template><name>flexipage:defaultAppHomeTemplate</name></template>
+    <type>AppPage</type>
+</FlexiPage>

@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<LightningComponentBundle xmlns="http://soap.sforce.com/2006/04/metadata">
+    <apiVersion>67.0</apiVersion>
+    <isExposed>true</isExposed>
+    <masterLabel>PDF Editor — Page d’application</masterLabel>
+    <description>Sélectionnez un enregistrement puis modifiez ses PDF et enregistrez une copie dans ses fichiers.</description>
+    <targets><target>lightning__AppPage</target></targets>
+    <targetConfigs>
+        <targetConfig targets="lightning__AppPage">
+            <property name="objectApiName" type="String" label="Nom API de l’objet à rechercher" default="Account" required="true" description="Objet compatible avec lightning-record-picker, par exemple Account, Contact, Opportunity ou un objet personnalisé avec un champ de nom." />
+            <property name="pickerLabel" type="String" label="Libellé du sélecteur" default="Compte" required="true" />
+            <supportedFormFactors><supportedFormFactor type="Large" /></supportedFormFactors>
+        </targetConfig>
+    </targetConfigs>
+</LightningComponentBundle>

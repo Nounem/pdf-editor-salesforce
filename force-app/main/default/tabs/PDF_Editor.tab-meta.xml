@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomTab xmlns="http://soap.sforce.com/2006/04/metadata">
+    <description>Ouvrir la page d’application de l’éditeur PDF.</description>
+    <flexiPage>PDF_Editor_App</flexiPage>
+    <label>Éditeur PDF</label>
+    <motif>Custom23: Mail</motif>
+</CustomTab>

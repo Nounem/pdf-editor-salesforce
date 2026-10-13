@@ -188,6 +188,14 @@ export default class PdfEditor extends NavigationMixin(LightningElement) {
         return !this.dirty || LightningConfirm.open({ label: 'Changer de document', message: 'Abandonner les modifications non enregistrées ?', theme: 'warning' });
     }
 
+    @api
+    async confirmClose() {
+        if (this.disabled) throw new Error('Attendez la fin du traitement avant de changer d’enregistrement.');
+        const confirmed = await this.confirmDiscard();
+        if (this.disabled) throw new Error('Attendez la fin du traitement avant de changer d’enregistrement.');
+        return confirmed;
+    }
+
     async openBytes(bytes, name, sourceVersionId, recordId) {
         const handle = await this.engine.open(bytes);
         await this.sourceHandle?.destroy();

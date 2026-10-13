@@ -1,0 +1,22 @@
+<template>
+    <div class="slds-m-bottom_medium">
+        <lightning-card title="Enregistrement lié au PDF" icon-name="standard:record">
+            <div class="slds-p-horizontal_medium slds-p-bottom_medium">
+                <p class="slds-m-bottom_small">Choisissez l’enregistrement dont vous souhaitez modifier les PDF. Les copies seront ajoutées à ses fichiers Salesforce.</p>
+                <div class="context-controls">
+                    <lightning-record-picker label={pickerLabel} object-api-name={objectApiName} value={selectedRecordId} onchange={handleRecordChange} disabled={pickerDisabled} required></lightning-record-picker>
+                    <template lwc:if={activeRecordId}>
+                        <lightning-button label="Changer d’enregistrement" onclick={handleChangeRecord} disabled={switching}></lightning-button>
+                    </template>
+                    <template lwc:else>
+                        <lightning-button label="Ouvrir l’éditeur" variant="brand" onclick={handleOpen} disabled={openDisabled}></lightning-button>
+                    </template>
+                </div>
+                <p lwc:if={message} class="slds-m-top_small slds-text-color_error" role="alert">{message}</p>
+            </div>
+        </lightning-card>
+    </div>
+    <template lwc:if={activeRecordId}>
+        <c-pdf-editor record-id={activeRecordId}></c-pdf-editor>
+    </template>
+</template>

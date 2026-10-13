@@ -53,3 +53,13 @@ Le bandeau personnalisé, la police décorative, la palette propre à l’édite
 Après cette refonte : compilation LWC réussie, 4 tests du modèle et 5 tests LWC réussis. Les quatre captures du README ont été régénérées avec le parcours complet texte, image et sauvegarde simulée. Les deux boutons de sélection de fichiers ouvrent le dialogue du navigateur ; un PDF local est également chargé. Le parcours vérifie l’absence de débordement horizontal de la page à 1 024 et 640 pixels de largeur.
 
 Les adaptateurs de documentation donnent un aperçu du placement des contrôles ; ils ne reproduisent pas intégralement les composants Salesforce. La validation Apex indiquée plus haut est antérieure à cette refonte. Le rendu natif sous Cosmos/SLDS 2, les personnalisations de marque et la navigation clavier dans les contrôles natifs doivent être vérifiés en organisation cible.
+
+## Page d’application pour Capitole Énergie
+
+Ajout de `pdfEditorApp`, de la FlexiPage `PDF_Editor_App`, de l’onglet `PDF_Editor` et de sa visibilité dans `PDF_Editor_User`. Le sélecteur natif recherche un compte par défaut ; l’objet et son libellé sont configurables dans Lightning App Builder. L’éditeur reçoit l’identifiant sélectionné et conserve ses contrôles d’accès serveur.
+
+Vérifications locales : 7 sources LWC compilées, 4 tests du modèle et 10 tests LWC réussis. Les nouveaux scénarios couvrent la sélection obligatoire, une sélection invalide, la transmission du contexte, le verrouillage du sélecteur pendant l’édition, l’annulation du changement d’enregistrement, la fermeture confirmée et le blocage pendant une sauvegarde.
+
+Validation Salesforce en sandbox `optiTurpe` : `0AfAa00000qIdrOKAS`, statut `Succeeded`, `checkOnly=true`, 15 composants validés et 5 tests Apex réussis. L’organisation a été confirmée comme sandbox avant l’opération. La page, l’onglet et les permissions ont été acceptés par Salesforce ; aucun déploiement n’a été appliqué et l’application Capitole Énergie n’a pas été modifiée.
+
+Après installation, vérifier la recherche réelle via `lightning-record-picker`, les permissions utilisateur, l’ouverture depuis la navigation de Capitole Énergie et le parcours PDF sous LWS. Les captures existantes du README montrent l’éditeur, pas le nouveau sélecteur de la page d’application.
