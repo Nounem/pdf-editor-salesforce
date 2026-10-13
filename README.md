@@ -95,7 +95,9 @@ L’aperçu est généré à partir du PDF exporté. Les bibliothèques sont emb
 
 ## Installer dans une sandbox
 
-Les ressources compilées et les métadonnées sont déjà dans `force-app`. La cible locale observée pendant le développement est `optiTurpe`, confirmée comme sandbox. Le code est validé avec `--dry-run` ; cette commande n’active pas le composant.
+Les ressources compilées et les métadonnées sont déjà dans `force-app`. Le 13 octobre 2026, le projet a été déployé pour test dans la sandbox `optiTurpe`, avec ajout de l’onglet **Éditeur PDF** à **Capitole Énergie** et attribution du Permission Set à l’utilisateur de test. Les commandes ci-dessous permettent une installation dans une sandbox ; `--dry-run`, lorsqu’il est ajouté, valide seulement le déploiement.
+
+La configuration propre à Capitole Énergie a été récupérée dans la sandbox pour y ajouter l’onglet en conservant ses réglages. Cette configuration reste locale et n’est pas incluse dans le dépôt générique : le bouton GitHub déploie l’App Page et son onglet ; l’ajout à la navigation d’une autre organisation suit les étapes en début de README.
 
 ```powershell
 sf project deploy start --target-org optiTurpe --source-dir force-app --test-level RunSpecifiedTests --tests PdfEditorControllerTest --wait 10

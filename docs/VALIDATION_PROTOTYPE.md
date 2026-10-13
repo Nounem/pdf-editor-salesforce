@@ -63,3 +63,14 @@ Vérifications locales : 7 sources LWC compilées, 4 tests du modèle et 10 test
 Validation Salesforce en sandbox `optiTurpe` : `0AfAa00000qIdrOKAS`, statut `Succeeded`, `checkOnly=true`, 15 composants validés et 5 tests Apex réussis. L’organisation a été confirmée comme sandbox avant l’opération. La page, l’onglet et les permissions ont été acceptés par Salesforce ; aucun déploiement n’a été appliqué et l’application Capitole Énergie n’a pas été modifiée.
 
 Après installation, vérifier la recherche réelle via `lightning-record-picker`, les permissions utilisateur, l’ouverture depuis la navigation de Capitole Énergie et le parcours PDF sous LWS. Les captures existantes du README montrent l’éditeur, pas le nouveau sélecteur de la page d’application.
+
+## Déploiement de test dans la sandbox
+
+Le 13 octobre 2026, à la demande de l’utilisateur, le projet a été effectivement déployé dans `optiTurpe`, après vérification de `Organization.IsSandbox=true`.
+
+- Déploiement `0AfAa00000qIkJOKA0` : `Succeeded`, `checkOnly=false`, 16 composants déployés et 5 tests Apex réussis.
+- Onglet `PDF_Editor` ajouté à l’application console existante `Capitole_Energie`, avec son entrée de navigation console.
+- Permission Set `PDF_Editor_User` attribué avec succès à l’utilisateur connecté de la sandbox.
+- Configuration relue après déploiement : présence du nouvel onglet, ordre des 11 onglets précédents conservé et 302 affectations de pages par profil conservées.
+
+La sauvegarde de la configuration d’origine et les paquets de déploiement restent dans des dossiers locaux exclus de Git. Les réglages propres à cette organisation ne sont pas publiés dans le dépôt générique. Ce déploiement de test ne concerne pas la production.
