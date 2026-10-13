@@ -1,0 +1,119 @@
+import { build } from 'esbuild';
+import { transformSync } from '@lwc/compiler';
+import { chromium } from '@playwright/test';
+import { createServer } from 'node:http';
+import { mkdir, readFile } from 'node:fs/promises';
+import path from 'node:path';
+import { mocks, componentNames } from './screenshots/lightning-mocks.mjs';
+import { createDemoPdf } from './screenshots/fixture.mjs';
+
+const root = process.cwd();
+const output = path.join(root, 'docs/screenshots');
+await mkdir(output, { recursive: true });
+const componentRoot = path.join(root, 'force-app/main/default/lwc');
+const bundle = await build({
+    absWorkingDir: root, tsconfigRaw: {}, write: false, bundle: true, format: 'iife', platform: 'browser', target: 'es2022',
+    define: { 'process.env.NODE_ENV': '"production"' },
+    stdin: { contents: `import {createElement} from 'lwc';import PdfEditor from 'c/pdfEditor';const app=createElement('c-pdf-editor',{is:PdfEditor});app.recordId='demo-record';document.querySelector('main').appendChild(app);`, resolveDir: root },
+    plugins: [{ name: 'lwc-documentation-preview', setup(plugin) {
+        plugin.onResolve({ filter: /^lwc$/ }, () => ({ path: path.join(root, 'node_modules/@lwc/engine-dom/dist/index.js') }));
+        plugin.onResolve({ filter: /^c\// }, (args) => { const name = args.path.slice(2); return { path: path.join(componentRoot, name, `${name}.js`) }; });
+        plugin.onResolve({ filter: /^lightning\// }, (args) => ({ path: `${args.path}.js`, namespace: 'preview' }));
+        plugin.onResolve({ filter: /^@salesforce\/apex\// }, (args) => ({ path: `apex/${args.path.split('.').at(-1)}.js`, namespace: 'preview' }));
+        plugin.onResolve({ filter: /^@salesforce\/resourceUrl\// }, () => ({ path: 'resource.js', namespace: 'preview' }));
+        plugin.onResolve({ filter: /^\.\//, namespace: 'preview' }, (args) => ({ path: path.posix.join(path.posix.dirname(args.importer), args.path), namespace: 'preview' }));
+        plugin.onLoad({ filter: /.*/, namespace: 'preview' }, (args) => {
+            const name = path.posix.basename(args.path).split('.')[0];
+            const source = mocks[args.path];
+            if (source === undefined) {
+                if (args.path.includes('.scoped.css')) return { contents: 'export default undefined;', loader: 'js' };
+                throw new Error(`Missing preview adapter: ${args.path}`);
+            }
+            return { contents: componentNames.has(name) ? transformSync(source, args.path, { namespace: 'lightning', name, apiVersion: 67 }).code : source, loader: 'js' };
+        });
+        plugin.onResolve({ filter: /\.scoped\.css/ }, () => ({ path: 'empty.scoped.css', namespace: 'preview' }));
+        plugin.onLoad({ filter: /\.(js|html|css)$/ }, async (args) => {
+            if (!args.path.startsWith(componentRoot)) return undefined;
+            const name = path.basename(path.dirname(args.path));
+            return { contents: transformSync(await readFile(args.path, 'utf8'), args.path, { namespace: 'c', name, apiVersion: 67 }).code, loader: 'js', resolveDir: path.dirname(args.path) };
+        });
+    } }]
+});
+const pdf = await createDemoPdf();
+const fixtureScript = `window.demoPdfBase64=${JSON.stringify(Buffer.from(pdf).toString('base64'))};window.demoPdf=Uint8Array.from(atob(window.demoPdfBase64),c=>c.charCodeAt(0));`;
+const engine = await readFile('force-app/main/default/staticresources/lovePdfEngine.resource');
+const html = `<!doctype html><html lang="fr"><head><meta charset="utf-8"><title>PDF Editor — démonstration locale</title><style>body{margin:0;background:#eef1f2;color:#18313c;font-family:Arial,sans-serif}header.demo{display:flex;justify-content:space-between;align-items:center;padding:14px 30px;background:#18313c;color:#fff;font-size:12px}header.demo strong{font-size:14px;letter-spacing:.5px}.demo span{color:#d2dee2}main{margin:24px auto;max-width:1460px;padding:0 20px}h1,h2,p{margin:0}</style><script src="/engine.js" defer></script><script src="/fixture.js" defer></script><script src="/preview.js" defer></script></head><body><header class="demo"><strong>PDF Editor · Guide visuel</strong><span>Aperçu local · Données fictives · Appels Salesforce simulés</span></header><main></main></body></html>`;
+const routes = new Map([['/', ['text/html', html]], ['/engine.js', ['application/javascript', engine]], ['/fixture.js', ['application/javascript', fixtureScript]], ['/preview.js', ['application/javascript', bundle.outputFiles[0].contents]]]);
+const server = createServer((request, response) => {
+    const route = routes.get(request.url);
+    if (!route) { response.writeHead(404).end(); return; }
+    response.setHeader('Content-Type', route[0]);
+    response.end(route[1]);
+});
+await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+let browser;
+let page;
+try {
+    browser = await chromium.launch({ channel: 'msedge', headless: true });
+    page = await browser.newPage({ viewport: { width: 1540, height: 900 }, deviceScaleFactor: 1 });
+    const failures = [];
+    page.on('pageerror', (error) => { failures.push(error.message); console.error(error.stack); });
+    await page.goto(`http://127.0.0.1:${server.address().port}/`);
+    const ready = async () => {
+        await page.getByText('Traitement en cours…', { exact: true }).waitFor({ state: 'hidden' });
+        await page.getByText('Préparation de l’aperçu…', { exact: true }).waitFor({ state: 'hidden' });
+        await page.waitForFunction(() => document.fonts.status === 'loaded');
+        const alerts = await page.getByRole('alert').allTextContents();
+        if (alerts.length) throw new Error(alerts.join('\n'));
+    };
+    await page.getByLabel('PDF de cet enregistrement (50 plus récents)').waitFor();
+    await ready();
+    await page.screenshot({ path: path.join(output, '01-ouvrir-un-pdf.png'), fullPage: true });
+    await page.getByLabel('PDF de cet enregistrement (50 plus récents)').selectOption('demo-version');
+    await page.getByRole('button', { name: 'Ouvrir', exact: true }).click();
+    await page.getByRole('button', { name: 'Texte', exact: true }).waitFor();
+    await ready();
+    await page.getByRole('button', { name: 'Texte', exact: true }).click();
+    await page.getByRole('button', { name: 'Placer l’outil au centre' }).click();
+    await ready();
+    const commitInput = async (label, value) => {
+        const input = page.getByLabel(label, { exact: true });
+        await input.fill(value);
+        await input.press('Tab');
+        await ready();
+    };
+    await commitInput('Texte (une ligne)', 'Bon pour accord');
+    await commitInput('Position X (pt PDF)', '42');
+    await commitInput('Position Y (pt PDF)', '177');
+    await page.screenshot({ path: path.join(output, '02-ajouter-du-texte.png'), fullPage: true });
+    const stamp = await page.evaluate(() => {
+        const canvas = document.createElement('canvas'); canvas.width = 480; canvas.height = 180;
+        const ctx = canvas.getContext('2d'); ctx.strokeStyle = '#bc502e'; ctx.lineWidth = 8; ctx.strokeRect(8, 8, 464, 164);
+        ctx.fillStyle = '#bc502e'; ctx.textAlign = 'center'; ctx.font = 'bold 48px sans-serif'; ctx.fillText('VALIDÉ', 240, 82);
+        ctx.font = '22px sans-serif'; ctx.fillText('ATELIER HORIZON', 240, 129); return canvas.toDataURL('image/png').split(',')[1];
+    });
+    await page.getByLabel('Ajouter une image PNG ou JPEG').setInputFiles({ name: 'tampon-demo.png', mimeType: 'image/png', buffer: Buffer.from(stamp, 'base64') });
+    await ready();
+    await page.getByRole('button', { name: 'Placer l’outil au centre' }).click();
+    await ready();
+    await commitInput('Position X (pt PDF)', '345');
+    await commitInput('Position Y (pt PDF)', '150');
+    await page.screenshot({ path: path.join(output, '03-ajouter-une-image.png'), fullPage: true });
+    await page.getByRole('button', { name: 'Enregistrer une copie', exact: true }).click();
+    await page.getByText('Votre copie a été enregistrée dans les fichiers de cet enregistrement.').waitFor();
+    await ready();
+    const saved = await page.evaluate(() => window.demoSavedRequest);
+    if (!saved?.payload?.startsWith('JVBERi0')) throw new Error('No PDF was produced by the screenshot flow');
+    await page.screenshot({ path: path.join(output, '04-enregistrer-une-copie.png'), fullPage: true });
+    if (failures.length) throw new Error(failures.join('\n'));
+    console.log('Captured 4 screenshots from the actual LWC and PDF engine using local Salesforce adapters.');
+} catch (error) {
+    await mkdir('.local', { recursive: true });
+    await page?.screenshot({ path: '.local/screenshot-debug.png', fullPage: true });
+    console.error(await page?.locator('main').innerText());
+    throw error;
+} finally {
+    await browser?.close();
+    server.closeAllConnections();
+    await new Promise((resolve) => server.close(resolve));
+}

@@ -11,7 +11,7 @@ jest.mock('@salesforce/apex/PdfEditorController.loadSmallPdf', () => ({ default:
 jest.mock('@salesforce/apex/PdfEditorController.saveCopy', () => ({ default: jest.fn() }), { virtual: true });
 
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
-const viewport = { width: 400, height: 500, convertToPdfPoint: (x, y) => [x, 500 - y], convertToViewportRectangle: (rect) => [rect[0], 500 - rect[1], rect[2], 500 - rect[3]] };
+const viewport = { width: 400, height: 500, convertToPdfPoint: (x, y) => [x, 500 - y], convertToViewportPoint: (x, y) => [x, 500 - y] };
 const makeHandle = () => ({ pageCount: 1, destroy: jest.fn().mockResolvedValue(), render: jest.fn().mockResolvedValue(viewport), measure: () => ({ width: 100, height: 16 }) });
 
 beforeEach(() => {

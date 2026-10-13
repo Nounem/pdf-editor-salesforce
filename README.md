@@ -2,6 +2,34 @@
 
 Prototype d’éditeur PDF en Lightning Web Component. Il permet de compléter un PDF depuis une page d’enregistrement Salesforce, puis d’enregistrer **une copie** dans Salesforce Files.
 
+## Comment ça fonctionne
+
+Les captures suivantes montrent le **composant LWC réel et son moteur PDF dans un aperçu local**, avec un devis fictif. Les contrôles Lightning et les appels Salesforce sont simulés pour cette démonstration ; ce ne sont pas des captures d’une organisation de production.
+
+### 1. Ouvrir un PDF
+
+Choisir un fichier lié à l’enregistrement dans la liste, puis cliquer sur **Ouvrir**, ou sélectionner un PDF avec **Depuis mon ordinateur**.
+
+![Écran d’accueil avec sélection d’un PDF Salesforce ou ouverture d’un fichier local](docs/screenshots/01-ouvrir-un-pdf.png)
+
+### 2. Ajouter et modifier du texte
+
+Cliquer sur **Texte**, puis sur la page ou sur **Placer l’outil au centre**. Le panneau **Propriétés** permet de saisir la mention, régler sa taille et sa couleur, et ajuster sa position. Ici, « Bon pour accord » est ajouté au devis.
+
+![Devis avec la mention Bon pour accord et le panneau de propriétés du texte](docs/screenshots/02-ajouter-du-texte.png)
+
+### 3. Ajouter une image
+
+Cliquer sur **Image**, sélectionner un PNG ou JPEG, puis le placer dans le document. Déplacer son cadre ou ajuster les coordonnées, la largeur et la hauteur dans **Propriétés**. L’exemple utilise un tampon fictif « VALIDÉ ».
+
+![Ajout d’un tampon image au devis avec réglage de sa position et de ses dimensions](docs/screenshots/03-ajouter-une-image.png)
+
+### 4. Enregistrer une copie
+
+Choisir le **Nom de la copie**, puis cliquer sur **Enregistrer une copie**. Dans Salesforce, le nouveau PDF est lié à l’enregistrement courant et le bouton **Voir la copie** ouvre son aperçu. La capture ci-dessous illustre le message de réussite avec une **sauvegarde simulée localement** ; aucun fichier n’est envoyé à Salesforce par la démonstration.
+
+![Message de confirmation illustrant la sauvegarde simulée d’une copie du PDF modifié](docs/screenshots/04-enregistrer-une-copie.png)
+
 ## Déployer en production
 
 [![Déployer PDF Editor dans Salesforce — Production](https://raw.githubusercontent.com/afawcett/githubsfdeploy/master/deploy.png)](https://githubsfdeploy.herokuapp.com/?owner=Nounem&repo=pdf-editor-salesforce)
@@ -75,6 +103,8 @@ sf project deploy start --dry-run --target-org optiTurpe --source-dir force-app 
 - `test` vérifie le modèle d’édition et l’interface avec les stubs Salesforce.
 - `test:browser` exécute le vrai moteur PDF dans Edge avec une CSP qui interdit les workers et les scripts externes. Ces tests ne reproduisent pas Lightning Web Security.
 - Les tests Apex vérifient lecture, copie, réessai, rejets et accès à un fichier privé. Ils utilisent des fichiers minimaux pour les contrôles serveur ; les tests navigateur couvrent le parsing/export réel.
+
+Pour régénérer les quatre captures à partir du composant et du moteur compilé : `npm run docs:screenshots`. Le script utilise Edge en mode sans interface, des données fictives et des adaptateurs locaux ; il n’appelle aucune organisation Salesforce.
 
 ## Organisation du code
 

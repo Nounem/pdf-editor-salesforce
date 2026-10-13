@@ -7,7 +7,8 @@
     "build": "node scripts/build.mjs",
     "test": "node --test tests/model.test.mjs && sfdx-lwc-jest -- --runInBand",
     "test:browser": "playwright test",
-    "check": "node scripts/check.mjs"
+    "check": "node scripts/check.mjs",
+    "docs:screenshots": "node scripts/capture-screenshots.mjs"
   },
   "dependencies": {
     "pdf-lib": "1.17.1",

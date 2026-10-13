@@ -39,3 +39,9 @@ Les limites de 1 Mo et 20 pages sont des garde-fous du prototype, pas des capaci
 Le corpus actuel est synthétique. Compléter avec les PDF métier, les formats d’image, les polices et les conditions de partage effectivement utilisés. La conservation PDF/A, les PDF balisés, les sources complexes et l’accessibilité du document produit ne sont pas validées.
 
 Le premier lot livre l’enrichissement et la sauvegarde d’une copie. L’édition du texte d’origine, le caviardage irréversible, la réédition persistante, la fusion et le réordonnancement restent à développer ou à intégrer via un moteur spécialisé.
+
+## Parcours visuel de documentation
+
+Les captures de `docs/screenshots/` sont produites avec `npm run docs:screenshots` : le véritable composant LWC et le bundle PDF s’exécutent ensemble dans Edge, avec des contrôles Lightning simplifiés et des appels Apex simulés. Le script ouvre un devis fictif, ajoute et repositionne une mention et un tampon, puis vérifie la production d’un PDF lors de la sauvegarde simulée. Aucune organisation Salesforce n’est appelée.
+
+Ce parcours a mis en évidence une incompatibilité avec la méthode `convertToViewportRectangle`, absente du viewport PDF.js utilisé. Le composant calcule désormais son cadre de sélection à partir de deux appels à `convertToViewportPoint`. La compilation LWC, les quatre tests du modèle et les cinq tests d’interface ont été relancés avec succès après cette correction. La recette sous Lightning Web Security reste distincte.

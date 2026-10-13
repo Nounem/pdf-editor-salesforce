@@ -130,7 +130,10 @@ export default class PdfEditor extends NavigationMixin(LightningElement) {
         if (!this.viewport || !this.page) return [];
         return this.page.elements.map((element) => {
             const item = this.drag?.id === element.id ? { ...element, x: this.drag.x, y: this.drag.y } : element;
-            const rectangle = this.viewport.convertToViewportRectangle([item.x, item.y, item.x + item.width, item.y + item.height]);
+            const rectangle = [
+                ...this.viewport.convertToViewportPoint(item.x, item.y),
+                ...this.viewport.convertToViewportPoint(item.x + item.width, item.y + item.height)
+            ];
             const left = Math.min(rectangle[0], rectangle[2]);
             const top = Math.min(rectangle[1], rectangle[3]);
             return {
