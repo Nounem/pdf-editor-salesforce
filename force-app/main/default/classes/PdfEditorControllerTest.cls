@@ -4,11 +4,35 @@ private class PdfEditorControllerTest {
     @TestSetup
     static void setup() {
         System.runAs(new User(Id = UserInfo.getUserId())) {
-            insert new PermissionSetAssignment(AssigneeId = UserInfo.getUserId(), PermissionSetId = [SELECT Id FROM PermissionSet WHERE Name = 'PDF_Editor_User' LIMIT 1].Id);
+            Id permissionId = [SELECT Id FROM PermissionSet WHERE Name = 'PDF_Editor_User' LIMIT 1].Id;
+            if ([SELECT count() FROM PermissionSetAssignment WHERE AssigneeId = :UserInfo.getUserId() AND PermissionSetId = :permissionId] == 0) {
+                insert new PermissionSetAssignment(AssigneeId = UserInfo.getUserId(), PermissionSetId = permissionId);
+            }
         }
         Account account = new Account(Name = 'LovePdf test');
         insert account;
         insert new ContentVersion(Title = 'Source', PathOnClient = 'source.pdf', VersionData = Blob.valueOf('%PDF-1.4\n%%EOF'), FirstPublishLocationId = account.Id);
+    }
+
+    @IsTest
+    static void listsReadableBusinessObjects() {
+        Test.startTest();
+        List<PdfEditorController.ObjectChoice> choices = PdfEditorController.listRecordObjects();
+        Test.stopTest();
+        Set<String> names = new Set<String>();
+        Map<String, Schema.SObjectType> types = Schema.getGlobalDescribe();
+        for (PdfEditorController.ObjectChoice choice : choices) {
+            System.assert(!String.isBlank(choice.label));
+            System.assert(names.add(choice.value), 'No duplicate objects');
+            Schema.DescribeSObjectResult description = types.get(choice.value).getDescribe();
+            System.assert(description.isAccessible() && description.isQueryable());
+            System.assert(description.fields.getMap().get('Name').getDescribe().isAccessible());
+        }
+        System.assert(names.contains('Account'));
+        System.assert(names.contains('Contact'));
+        System.assert(names.contains('Opportunity'));
+        System.assert(!names.contains('PDF_Edit_Operation__c'), 'Internal journal must not be offered');
+        System.assert(!names.contains('ContentVersion'), 'Technical objects must not be offered');
     }
 
     @IsTest

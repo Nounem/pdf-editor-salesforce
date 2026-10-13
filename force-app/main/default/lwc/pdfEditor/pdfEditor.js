@@ -10,8 +10,11 @@ import { MAX_BYTES, MAX_IMAGE_BYTES, MAX_IMAGE_PIXELS, createState, createHistor
 
 export default class PdfEditor extends NavigationMixin(LightningElement) {
     @api recordId;
+    @api contextPending = false;
     initialized = false;
     ready = false;
+    initializationFailed = false;
+    filesFailed = false;
     busy = false;
     rendering = false;
     message = '';
@@ -74,33 +77,47 @@ export default class PdfEditor extends NavigationMixin(LightningElement) {
 
     async initialize() {
         this.busy = true;
+        this.initializationFailed = false;
+        this.message = '';
         try {
             await loadScript(this, engineResource);
             this.engine = window.LovePdfEngine;
             if (!this.engine) throw new Error('Le moteur PDF n’a pas pu être initialisé.');
             this.ready = true;
             await this.refreshFiles();
-        } catch (error) { this.fail(error); }
+        } catch (error) {
+            this.initializationFailed = true;
+            this.fail(error, 'Impossible de charger le moteur PDF. Vérifiez avec votre administrateur que Lightning Web Security (LWS) est activé, puis réessayez le chargement.');
+        }
         finally { this.busy = false; }
     }
+
+    handleRetryEngine() { if (!this.busy) this.initialize(); }
+    handleRetryFiles() { if (!this.disabled) { this.message = ''; this.refreshFiles(); } }
 
     async refreshFiles() {
         const recordId = this.recordId;
         this.filesRecordId = recordId;
         this.selectedFile = '';
-        if (!recordId) { this.files = []; return; }
+        this.files = [];
+        this.filesFailed = false;
+        if (!recordId) return;
         try {
             const files = await listRecordPdfs({ recordId });
             if (recordId !== this.recordId) return;
             this.files = files.map((file) => ({ label: `${file.title} · ${Math.ceil(file.size / 1000)} ko`, value: file.versionId }));
-        } catch (error) { this.fail(error); }
+        } catch (error) {
+            if (recordId !== this.recordId) return;
+            this.filesFailed = true;
+            this.fail(error, 'Impossible de lire les PDF de cet enregistrement. Réessayez ou ouvrez un PDF depuis votre ordinateur.');
+        }
     }
 
     get hasDocument() { return Boolean(this.history); }
     get noDocument() { return !this.hasDocument; }
     get disabled() { return this.busy || this.rendering || !this.ready; }
     get openDisabled() { return this.disabled || !this.selectedFile; }
-    get saveDisabled() { return this.disabled || !this.history || !this.recordId || this.contextChanged || !this.dirty; }
+    get saveDisabled() { return this.disabled || !this.history || !this.recordId || this.contextPending || this.contextChanged || !this.dirty; }
     get contextChanged() { return this.hasDocument && this.documentRecordId !== this.recordId; }
     get missingRecord() { return !this.recordId; }
     get undoDisabled() { return this.disabled || !this.history?.past.length; }
@@ -146,8 +163,10 @@ export default class PdfEditor extends NavigationMixin(LightningElement) {
         });
     }
 
-    fail(error) {
-        this.message = error?.body?.message || error?.message || 'Une erreur est survenue. Réessayez.';
+    fail(error, context = '') {
+        const detail = (Array.isArray(error?.body) ? error.body.map((item) => item.message).filter(Boolean).join(' ') : error?.body?.message)
+            || error?.message || (typeof error === 'string' ? error : '');
+        this.message = [context, detail].filter(Boolean).join(' ') || 'Une erreur est survenue. Réessayez.';
         this.success = '';
     }
 
@@ -194,6 +213,62 @@ export default class PdfEditor extends NavigationMixin(LightningElement) {
         const confirmed = await this.confirmDiscard();
         if (this.disabled) throw new Error('Attendez la fin du traitement avant de changer d’enregistrement.');
         return confirmed;
+    }
+
+    @api
+    async prepareRecordChange(nextRecordId) {
+        if (this.disabled) throw new Error('Attendez la fin du traitement avant de changer d’enregistrement.');
+        if (this.recordId === nextRecordId) return true;
+        const linkedDocument = this.hasDocument && this.sourceVersionId;
+        if (linkedDocument && !await this.confirmClose()) return false;
+        this.busy = true;
+        try {
+            if (linkedDocument) {
+                // A Salesforce source belongs to its original record. Never silently relink it.
+                clearTimeout(this.renderTimer);
+                await this.sourceHandle?.destroy();
+                await this.previewHandle?.destroy();
+                this.sourceHandle = null;
+                this.previewHandle = null;
+                this.sourceBytes = null;
+                this.sourceVersionId = null;
+                this.history = null;
+                this.viewport = null;
+                this.assets.clear();
+                this.pendingImage = null;
+                this.selectedId = null;
+                this.drag = null;
+            }
+            // Local PDFs keep their edits when the user explicitly chooses a destination.
+            this.documentRecordId = nextRecordId;
+            this.savedSnapshot = '';
+            this.savedTitle = '';
+            this.saveRequestId = null;
+            this.savedDocumentId = null;
+            this.success = '';
+            this.message = '';
+            return true;
+        } finally { this.busy = false; }
+    }
+
+    async handleDownload() {
+        if (this.disabled || !this.hasDocument) return;
+        this.busy = true;
+        this.message = '';
+        let url;
+        try {
+            const bytes = await this.engine.exportPdf(this.sourceBytes, this.history.present, this.assets);
+            url = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
+            const link = this.template.querySelector('.download-link');
+            link.href = url;
+            link.download = `${(this.title.trim() || 'Document').replace(/[\\/]/g, '_').replace(/\.pdf$/i, '')}.pdf`;
+            link.click();
+            link.removeAttribute('href');
+        } catch (error) { this.fail(error); }
+        finally {
+            this.busy = false;
+            if (url) setTimeout(() => URL.revokeObjectURL(url), 1000);
+        }
     }
 
     async openBytes(bytes, name, sourceVersionId, recordId) {

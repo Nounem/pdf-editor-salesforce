@@ -67,6 +67,50 @@ it('reports engine loading failures', async () => {
     expect(element.shadowRoot.querySelector('[role="alert"]').textContent).toContain('Bibliothèque indisponible');
 });
 
+it('identifies script load failures without a message and allows a retry', async () => {
+    loadScript.mockRejectedValueOnce(new Event('error')).mockResolvedValue();
+    const element = createElement('c-pdf-editor', { is: PdfEditor });
+    document.body.appendChild(element);
+    await flush();
+    const button = (label) => [...element.shadowRoot.querySelectorAll('lightning-button')].find((item) => item.label === label);
+    expect(element.shadowRoot.querySelector('[role="alert"]').textContent).toContain('Impossible de charger le moteur PDF');
+    expect(button('Depuis mon ordinateur').disabled).toBe(true);
+    button('Réessayer le chargement').click();
+    await flush(); await flush();
+    expect(button('Depuis mon ordinateur').disabled).toBe(false);
+    expect(element.shadowRoot.querySelector('[role="alert"]')).toBeNull();
+});
+
+it('keeps local editing available after a file listing failure and retries the query', async () => {
+    listRecordPdfs.mockRejectedValueOnce({ body: [{ message: 'Accès refusé' }] }).mockResolvedValue([]);
+    const element = createElement('c-pdf-editor', { is: PdfEditor });
+    element.recordId = '001record';
+    document.body.appendChild(element);
+    await flush(); await flush();
+    const button = (label) => [...element.shadowRoot.querySelectorAll('lightning-button')].find((item) => item.label === label);
+    expect(element.shadowRoot.querySelector('[role="alert"]').textContent).toContain('Impossible de lire les PDF');
+    expect(element.shadowRoot.querySelector('[role="alert"]').textContent).toContain('Accès refusé');
+    expect(button('Depuis mon ordinateur').disabled).toBe(false);
+    button('Réessayer la recherche des PDF').click();
+    await flush(); await flush();
+    expect(element.shadowRoot.querySelector('[role="alert"]')).toBeNull();
+    expect(listRecordPdfs).toHaveBeenCalledTimes(2);
+});
+
+it('ignores obsolete listing failures after changing records', async () => {
+    let rejectOldRequest;
+    listRecordPdfs.mockImplementationOnce(() => new Promise((resolve, reject) => { rejectOldRequest = reject; })).mockResolvedValue([]);
+    const element = createElement('c-pdf-editor', { is: PdfEditor });
+    element.recordId = '001old';
+    document.body.appendChild(element);
+    await flush();
+    element.recordId = '001new';
+    await flush(); await flush();
+    rejectOldRequest({ body: { message: 'Erreur ancien compte' } });
+    await flush(); await flush();
+    expect(element.shadowRoot.querySelector('[role="alert"]')).toBeNull();
+});
+
 it('adds text, commits property edits and undoes deletion', async () => {
     const element = await mountAndOpen();
     const button = (label) => [...element.shadowRoot.querySelectorAll('lightning-button')].find((item) => item.label === label);
@@ -108,4 +152,64 @@ it('asks before closing unsaved work and prevents closing during a save', async 
     await flush(); await flush();
     await expect(element.confirmClose()).resolves.toBe(true);
     expect(LightningConfirm.open).toHaveBeenCalledTimes(2);
+});
+
+async function mountLocalPdf() {
+    const element = createElement('c-pdf-editor', { is: PdfEditor });
+    document.body.appendChild(element);
+    await flush(); await flush();
+    const input = element.shadowRoot.querySelector('.local-file');
+    Object.defineProperty(input, 'files', { value: [{ name: 'local.pdf', size: 8, arrayBuffer: async () => new Uint8Array([37,80,68,70]).buffer }] });
+    input.dispatchEvent(new CustomEvent('change'));
+    await flush(); await flush(); await flush();
+    return element;
+}
+
+it('keeps local edits when assigning a destination later, and saves only to that destination', async () => {
+    const element = await mountLocalPdf();
+    const button = (label) => [...element.shadowRoot.querySelectorAll('lightning-button')].find((item) => item.label === label);
+    expect(button('Enregistrer une copie').disabled).toBe(true);
+    button('Texte').click(); await flush();
+    button('Placer l’outil au centre').click(); await flush(); await flush(); await flush();
+    expect(element.shadowRoot.querySelectorAll('.element')).toHaveLength(1);
+    await expect(element.prepareRecordChange('006opportunity')).resolves.toBe(true);
+    element.recordId = '006opportunity';
+    await flush(); await flush();
+    expect(element.shadowRoot.querySelectorAll('.element')).toHaveLength(1);
+    expect(LightningConfirm.open).not.toHaveBeenCalled();
+    element.contextPending = true;
+    await flush();
+    expect(button('Enregistrer une copie').disabled).toBe(true);
+    element.contextPending = false;
+    await flush();
+    saveCopy.mockResolvedValue({ documentId:'069copy', versionId:'068copy' });
+    button('Enregistrer une copie').click(); await flush(); await flush();
+    expect(saveCopy).toHaveBeenCalledWith(expect.objectContaining({recordId:'006opportunity',sourceVersionId:null}));
+});
+
+it('downloads an edited local PDF without calling Salesforce save', async () => {
+    const element = await mountLocalPdf();
+    URL.createObjectURL = jest.fn(() => 'blob:local-pdf');
+    URL.revokeObjectURL = jest.fn();
+    const click = jest.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+    [...element.shadowRoot.querySelectorAll('lightning-button')].find((item) => item.label === 'Télécharger le PDF').click();
+    await flush(); await flush();
+    expect(URL.createObjectURL).toHaveBeenCalledWith(expect.any(Blob));
+    expect(click).toHaveBeenCalled();
+    expect(element.shadowRoot.querySelector('.download-link').download).toBe('local — copie.pdf');
+    expect(saveCopy).not.toHaveBeenCalled();
+    click.mockRestore();
+    await new Promise((resolve) => setTimeout(resolve, 1050));
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:local-pdf');
+});
+
+it('requires confirmation and resets a Salesforce document before switching to another record', async () => {
+    const element = await mountAndOpen();
+    LightningConfirm.open.mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+    await expect(element.prepareRecordChange('006other')).resolves.toBe(false);
+    expect(element.shadowRoot.querySelector('canvas')).not.toBeNull();
+    await expect(element.prepareRecordChange('006other')).resolves.toBe(true);
+    element.recordId = '006other';
+    await flush(); await flush();
+    expect(element.shadowRoot.querySelector('canvas')).toBeNull();
 });

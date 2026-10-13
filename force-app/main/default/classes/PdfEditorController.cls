@@ -2,6 +2,37 @@ public with sharing class PdfEditorController {
     private static final Integer MAX_BYTES = 1000000;
     private static final Integer MAX_BASE64 = 1333336;
 
+    public class ObjectChoice {
+        @AuraEnabled public String label;
+        @AuraEnabled public String value;
+        public ObjectChoice(Schema.DescribeSObjectResult description) {
+            label = description.getLabel();
+            value = description.getName();
+        }
+    }
+
+    @AuraEnabled(cacheable=true)
+    public static List<ObjectChoice> listRecordObjects() {
+        Set<String> standardObjects = new Set<String>{
+            'account', 'contact', 'opportunity', 'lead', 'quote',
+            'asset', 'campaign', 'product2', 'pricebook2'
+        };
+        Map<String, Schema.SObjectType> types = Schema.getGlobalDescribe();
+        List<ObjectChoice> result = new List<ObjectChoice>();
+        for (String name : types.keySet()) {
+            if (name == 'PDF_Edit_Operation__c') continue;
+            // Include business custom objects, not metadata, events or history tables.
+            // Global describe keys can be lowercase; Set membership is case-sensitive.
+            if (!standardObjects.contains(name.toLowerCase()) && !name.endsWith('__c')) continue;
+            Schema.DescribeSObjectResult description = types.get(name).getDescribe();
+            if (!description.isAccessible() || !description.isQueryable() || description.isCustomSetting()) continue;
+            Schema.SObjectField nameField = description.fields.getMap().get('Name');
+            if (nameField == null || !nameField.getDescribe().isAccessible()) continue;
+            result.add(new ObjectChoice(description));
+        }
+        return result;
+    }
+
     public class FileInfo {
         @AuraEnabled public Id documentId;
         @AuraEnabled public Id versionId;

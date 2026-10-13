@@ -3,12 +3,12 @@
     <apiVersion>67.0</apiVersion>
     <isExposed>true</isExposed>
     <masterLabel>PDF Editor — Page d’application</masterLabel>
-    <description>Sélectionnez un enregistrement puis modifiez ses PDF et enregistrez une copie dans ses fichiers.</description>
+    <description>Ouvrez un PDF local ou recherchez ses fichiers en sélectionnant un objet et un enregistrement Salesforce.</description>
     <targets><target>lightning__AppPage</target></targets>
     <targetConfigs>
         <targetConfig targets="lightning__AppPage">
-            <property name="objectApiName" type="String" label="Nom API de l’objet à rechercher" default="Account" required="true" description="Objet compatible avec lightning-record-picker, par exemple Account, Contact, Opportunity ou un objet personnalisé avec un champ de nom." />
-            <property name="pickerLabel" type="String" label="Libellé du sélecteur" default="Compte" required="true" />
+            <property name="objectApiName" type="String" label="Objet présélectionné" default="Account" description="Présélection uniquement : les utilisateurs peuvent choisir un autre objet accessible." />
+            <property name="pickerLabel" type="String" label="Libellé de la recherche d’enregistrement" default="Enregistrement" required="true" />
             <supportedFormFactors><supportedFormFactor type="Large" /></supportedFormFactors>
         </targetConfig>
     </targetConfigs>

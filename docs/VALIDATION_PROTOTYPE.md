@@ -74,3 +74,29 @@ Le 13 octobre 2026, à la demande de l’utilisateur, le projet a été effectiv
 - Configuration relue après déploiement : présence du nouvel onglet, ordre des 11 onglets précédents conservé et 302 affectations de pages par profil conservées.
 
 La sauvegarde de la configuration d’origine et les paquets de déploiement restent dans des dossiers locaux exclus de Git. Les réglages propres à cette organisation ne sont pas publiés dans le dépôt générique. Ce déploiement de test ne concerne pas la production.
+
+## Ouverture locale, recherche multi-objets et diagnostic du moteur
+
+Mise à jour du 13 octobre 2026 : la page ouvre désormais un PDF local sans compte obligatoire. La destination Salesforce peut être choisie après édition. Le choix d’objet inclut les objets standards pris en charge et les objets personnalisés disposant d’un champ `Name` lisible. Une confirmation protège les modifications d’une source Salesforce lors d’un changement de destination.
+
+Le premier essai de déploiement a détecté une erreur de casse dans le filtre des objets standards. Les clés de `Schema.getGlobalDescribe()` sont en minuscules dans l’organisation testée ; elles sont désormais comparées à une liste normalisée. Le déploiement suivant `0AfAa00000qIto5KAC` a réussi (`checkOnly=false`, 6 tests Apex réussis). La lecture après installation confirme la présence de `Account`, `Contact`, `Opportunity`, `Quote` et `Compteur__c` parmi 159 objets éligibles pour l’utilisateur connecté. La lecture des PDF d’un compte accessible a réussi ; l’échantillon ne contenait aucun PDF.
+
+Vérifications locales après correction du moteur :
+
+- 7 sources LWC compilées, 4 tests du modèle et 18 tests LWC réussis.
+- 6 tests navigateur réussis : 3 avec le moteur natif et les mêmes 3 sous `@locker/sandbox` 0.28.11, bibliothèque publiée par l’équipe sécurité Salesforce.
+- Ouverture, texte accentué, image, masque, rotation, export idempotent, conservation des octets d’origine et refus des entrées non prises en charge vérifiés.
+- Parcours réel LWC/moteur avec adaptateurs Salesforce : ouverture locale, édition, téléchargement valide, destination Compteur choisie sans perte d’ajouts et sauvegarde simulée ; 4 captures régénérées.
+- Audit des dépendances de production : 0 vulnérabilité signalée. Ressource compilée : 2 131 061 octets.
+
+Le moteur final et les messages de diagnostic ont ensuite été effectivement déployés dans `optiTurpe` : `0AfAa00000qIuCIKA0`, `Succeeded`, `checkOnly=false`, 4 composants mis à jour et 34 tests déclarés terminés par le rapport Salesforce, sans erreur. Les paramètres de sécurité ne faisaient pas partie de ce déploiement.
+
+### Erreur signalée à l’ouverture de l’éditeur
+
+Les paramètres récupérés de la sandbox montrent `lockerServiceNext=false` : l’organisation utilise Lightning Locker. Le moteur actuel nécessite LWS. Ce paramètre n’a pas été modifié ; il concerne l’ensemble des composants de l’organisation. Voir [la documentation Salesforce sur ce paramètre](https://developer.salesforce.com/docs/platform/lightning-components-security/guide/lws-enable-scratch-orgs.html).
+
+Un second problème a été reproduit avec la bibliothèque locale LWS : `structuredClone` perd les propriétés du message PDF.js contenant des buffers transférables, puis peut refuser des objets proxifiés lors du rendu. Avant correction, l’ouverture ou le rendu attendait indéfiniment ; après injection d’un clonage JavaScript limité au bundle PDF, les 3 scénarios passent sous LWS. Les transferts de buffers sont ignorés puisque le moteur reste dans le même thread. Aucun global du navigateur ni paramètre de sécurité n’est remplacé.
+
+L’interface identifie maintenant la phase en erreur (moteur ou liste de PDF), garde les détails disponibles et propose de réessayer. Une recherche en erreur ne bloque pas l’ouverture locale si le moteur est chargé. Les réponses obsolètes d’un ancien enregistrement sont ignorées.
+
+**Limite de validation :** le navigateur automatisé connecté à l’organisation est redirigé vers l’écran Salesforce de changement de mot de passe. Il n’a donc pas permis de reproduire visuellement le message initial ni de valider la page native. Les tests LWS locaux ne remplacent pas la recette dans Capitole Énergie. L’activation de LWS et cette recette restent nécessaires ; aucune correction complète de l’erreur en organisation n’est revendiquée à ce stade.

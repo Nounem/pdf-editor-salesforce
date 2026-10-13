@@ -11,10 +11,12 @@
     "docs:screenshots": "node scripts/capture-screenshots.mjs"
   },
   "dependencies": {
+    "@ungap/structured-clone": "1.4.0",
     "pdf-lib": "1.17.1",
     "pdfjs-dist": "6.4.299"
   },
   "devDependencies": {
+    "@locker/sandbox": "0.28.11",
     "@lwc/compiler": "8.28.2",
     "@playwright/test": "1.64.0",
     "@salesforce/sfdx-lwc-jest": "7.9.0",

@@ -84,7 +84,7 @@ async function open(bytes) {
     const task = getDocument({
         data: bytes.slice(), isEvalSupported: false, enableXfa: false,
         useSystemFonts: true, disableFontFace: false, isOffscreenCanvasSupported: false,
-        useWasm: false, stopAtErrors: true
+        useWasm: false, isImageDecoderSupported: false, stopAtErrors: true
     });
     const pdf = await task.promise;
     const font = await inspected.embedFont(StandardFonts.Helvetica);

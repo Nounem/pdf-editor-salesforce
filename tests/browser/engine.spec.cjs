@@ -11,10 +11,17 @@ async function fixture(rotation = 0) {
     return Array.from(await document.save());
 }
 
+for (const mode of ['native', 'LWS']) {
+test.describe(mode, () => {
+async function openEnginePage(page) {
+    await page.goto(mode === 'LWS' ? '/lws' : '/');
+    if (mode === 'LWS') await page.evaluate(() => window.pdfLwsReady);
+}
+
 test('renders, exports text and image, retains source and produces stable retry bytes', async ({ page }) => {
     const requests = [];
     page.on('request', (request) => requests.push(request.url()));
-    await page.goto('/');
+    await openEnginePage(page);
     const original = await fixture();
     const result = await page.evaluate(async (source) => {
         const engine = window.LovePdfEngine;
@@ -49,11 +56,11 @@ test('renders, exports text and image, retains source and produces stable retry 
     expect(exported.getPageCount()).toBe(1);
     expect(exported.getPage(0).getRotation().angle).toBe(90);
     expect(requests.every((url) => url.startsWith('http://127.0.0.1:4175/'))).toBe(true);
-    await page.screenshot({ path: 'test-results/pdf-engine.png', fullPage: true });
+    await page.screenshot({ path: `test-results/pdf-engine-${mode}.png`, fullPage: true });
 });
 
 test('rotated PDF coordinates round-trip and unsupported inputs fail clearly', async ({ page }) => {
-    await page.goto('/');
+    await openEnginePage(page);
     const outcome = await page.evaluate(async (source) => {
         const engine = window.LovePdfEngine;
         const handle = await engine.open(new Uint8Array(source));
@@ -77,10 +84,12 @@ test('interactive PDFs are rejected before reconstruction', async ({ page }) => 
     const pdfPage = document.addPage();
     document.getForm().createTextField('Client').addToPage(pdfPage);
     const source = Array.from(await document.save());
-    await page.goto('/');
+    await openEnginePage(page);
     const error = await page.evaluate(async (bytes) => {
         try { await window.LovePdfEngine.open(new Uint8Array(bytes)); return ''; }
         catch (failure) { return failure.message; }
     }, source);
     expect(error).toContain('formulaires interactifs');
 });
+});
+}

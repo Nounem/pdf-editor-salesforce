@@ -2,6 +2,8 @@
 
 Prototype d’éditeur PDF en Lightning Web Component. Il permet de compléter un PDF depuis une page d’enregistrement Salesforce ou une **page d’application dédiée**, puis d’enregistrer **une copie** dans Salesforce Files.
 
+**Prérequis : Lightning Web Security (LWS) activé.** Le moteur n’est pas compatible avec l’ancien Lightning Locker. Vérifier **Configuration → Paramètres de session → Utiliser Lightning Web Security** avant la recette. Ce réglage concerne toute l’organisation ; le bouton de déploiement ne le change pas. [Documentation Salesforce](https://developer.salesforce.com/docs/platform/lightning-components-security/guide/lws-enable.html).
+
 ## Ajouter l’éditeur à Capitole Énergie
 
 Le projet fournit la page d’application **Éditeur PDF** (`PDF_Editor_App`) et son onglet Lightning **Éditeur PDF** (`PDF_Editor`). L’application Capitole Énergie existante n’est pas incluse ni modifiée par le déploiement.
@@ -9,11 +11,13 @@ Le projet fournit la page d’application **Éditeur PDF** (`PDF_Editor_App`) et
 1. Déployer le projet, puis attribuer le Permission Set **LovePdfSales — Éditeur PDF** (`PDF_Editor_User`) aux utilisateurs concernés. Il donne accès au contrôleur Apex et rend l’onglet visible ; les droits métier sur les enregistrements et fichiers restent nécessaires.
 2. Dans **Configuration → Gestionnaire d’applications**, trouver **Capitole Énergie**, puis **Modifier**.
 3. Ouvrir **Éléments de navigation**, ajouter **Éditeur PDF** aux éléments sélectionnés, choisir sa position et enregistrer.
-4. Recharger Capitole Énergie et ouvrir l’onglet **Éditeur PDF**. Rechercher un compte, le sélectionner et cliquer sur **Ouvrir l’éditeur**. Les PDF proposés et les copies enregistrées sont liés à ce compte.
+4. Recharger Capitole Énergie et ouvrir l’onglet **Éditeur PDF**. Ouvrir directement un PDF avec **Depuis mon ordinateur**, ou choisir un **Type d’objet**, rechercher un **Enregistrement** et cliquer sur **Utiliser cet enregistrement** pour accéder à ses PDF.
 
-La page est livrée pour les **comptes (`Account`)**, sur ordinateur. Pour rechercher un autre objet, ouvrir **Configuration → Générateur d’applications Lightning → Éditeur PDF → Modifier**, sélectionner le composant **PDF Editor — Page d’application**, puis modifier **Nom API de l’objet à rechercher** et **Libellé du sélecteur**. Par exemple : `Opportunity` et `Opportunité`. L’objet doit être pris en charge par le [sélecteur d’enregistrements Lightning](https://developer.salesforce.com/docs/platform/lightning-component-reference/guide/lightning-record-picker) et accessible à l’utilisateur. Enregistrer la page.
+La recherche permet de choisir l’objet directement dans la page : **compte, contact, opportunité, offre/devis, compteur et autres objets personnalisés éligibles**. **Filtrer les objets** réduit la liste. Les libellés proviennent de Salesforce ; les choix tiennent compte des droits de lecture de l’utilisateur. Les objets personnalisés doivent disposer d’un champ `Name` lisible, et le [sélecteur d’enregistrements Lightning](https://developer.salesforce.com/docs/platform/lightning-component-reference/guide/lightning-record-picker) doit prendre en charge l’objet. Les objets de configuration et le journal interne sont exclus. Un objet non pris en charge affiche un message, sans bloquer l’ouverture locale.
 
-Le bouton **Changer d’enregistrement** demande confirmation si des modifications ne sont pas enregistrées. Il conserve la session en cas d’annulation et bloque le changement pendant un traitement, pour éviter d’affecter une copie à un autre enregistrement.
+Le choix d’un enregistrement est **facultatif pour modifier et télécharger un PDF local**. Il est nécessaire pour enregistrer une copie dans Salesforce. Vous pouvez choisir cette destination après avoir commencé l’édition : les modifications du PDF local sont conservées.
+
+**Changer d’enregistrement** permet une nouvelle recherche. La sauvegarde Salesforce reste suspendue jusqu’à l’application de la sélection ou son annulation. Si le PDF provient de Salesforce, changer de destination ferme ce document après confirmation des modifications non enregistrées ; il n’est pas rattaché silencieusement à un autre enregistrement. Le changement est bloqué pendant un traitement.
 
 ## Charte Salesforce et SLDS 2
 
@@ -29,9 +33,9 @@ Les captures suivantes montrent le **composant LWC réel et son moteur PDF dans 
 
 ### 1. Ouvrir un PDF
 
-Choisir un fichier lié à l’enregistrement dans la liste, puis cliquer sur **Ouvrir**, ou sélectionner un PDF avec **Depuis mon ordinateur**.
+Cliquer sur **Depuis mon ordinateur** pour sélectionner un PDF, sans choisir d’enregistrement au préalable. Pour un PDF déjà présent dans Salesforce, choisir son objet et son enregistrement, appliquer la sélection, puis choisir le fichier dans la liste et cliquer sur **Ouvrir**.
 
-![Écran d’accueil avec sélection d’un PDF Salesforce ou ouverture d’un fichier local](docs/screenshots/01-ouvrir-un-pdf.png)
+![App Page avec recherche par objet et ouverture directe d’un PDF local](docs/screenshots/01-ouvrir-un-pdf.png)
 
 ### 2. Ajouter et modifier du texte
 
@@ -41,13 +45,13 @@ Cliquer sur **Texte**, puis sur la page ou sur **Placer l’outil au centre**. L
 
 ### 3. Ajouter une image
 
-Cliquer sur **Image**, sélectionner un PNG ou JPEG, puis le placer dans le document. Déplacer son cadre ou ajuster les coordonnées, la largeur et la hauteur dans **Propriétés**. L’exemple utilise un tampon fictif « VALIDÉ ».
+Cliquer sur **Image**, sélectionner un PNG ou JPEG, puis le placer dans le document. Déplacer son cadre ou ajuster les coordonnées, la largeur et la hauteur dans **Propriétés**. L’exemple utilise un tampon fictif « VALIDÉ » et montre le choix d’un compteur comme destination après l’ouverture locale du PDF.
 
 ![Ajout d’un tampon image au devis avec réglage de sa position et de ses dimensions](docs/screenshots/03-ajouter-une-image.png)
 
 ### 4. Enregistrer une copie
 
-Choisir le **Nom de la copie**, puis cliquer sur **Enregistrer une copie**. Dans Salesforce, le nouveau PDF est lié à l’enregistrement courant et le bouton **Voir la copie** ouvre son aperçu. La capture ci-dessous illustre le message de réussite avec une **sauvegarde simulée localement** ; aucun fichier n’est envoyé à Salesforce par la démonstration.
+Choisir le **Nom de la copie**, puis **Télécharger le PDF** pour récupérer le résultat sur l’ordinateur. Pour une sauvegarde dans Salesforce, sélectionner l’objet et l’enregistrement destinataire, appliquer la sélection, puis cliquer sur **Enregistrer une copie**. Le nouveau PDF est lié à cet enregistrement et **Voir la copie** ouvre son aperçu. La capture ci-dessous illustre une **sauvegarde simulée localement** ; aucun fichier n’est envoyé à Salesforce par la démonstration.
 
 ![Message de confirmation illustrant la sauvegarde simulée d’une copie du PDF modifié](docs/screenshots/04-enregistrer-une-copie.png)
 
@@ -71,6 +75,9 @@ La validation actuelle porte sur le prototype en sandbox ; la recette de l’int
 ## Fonctionnalités développées
 
 - Ouvrir un PDF lié à l’enregistrement ou un fichier local.
+- Rechercher un enregistrement en choisissant son objet, y compris les objets personnalisés éligibles.
+- Modifier puis télécharger un PDF local sans choisir d’enregistrement Salesforce.
+- Choisir la destination Salesforce après l’édition d’un PDF local en conservant les ajouts.
 - Ajouter une ligne de texte, modifier sa taille, sa couleur et sa position.
 - Ajouter des images PNG/JPEG et régler leurs dimensions.
 - Ajouter un rectangle blanc de **masquage visuel**.
@@ -90,12 +97,15 @@ L’aperçu est généré à partir du PDF exporté. Les bibliothèques sont emb
 - Ajout de texte latin en Helvetica, une ligne de 200 caractères au maximum. Pas d’édition du texte d’origine, d’OCR, de fusion ni de réorganisation des pages dans cette version.
 - Les ajouts restent éditables pendant la session. Après fermeture, ils sont intégrés au contenu du PDF ; le projet d’édition n’est pas conservé.
 - Le moteur PDF.js fonctionne dans le thread principal pour éviter les workers et imports dynamiques sous LWS. Cela reste à qualifier en interface Lightning dans l’org cible.
+- Les messages internes du moteur sont copiés en JavaScript dans son contexte LWS, sans transfert de buffers ni modification des API globales. Les tests navigateur couvrent le moteur natif et la bibliothèque officielle de sandbox LWS ; la recette dans une page Lightning réelle reste nécessaire.
 - Seuls les utilisateurs internes et Lightning Experience sur ordinateur sont ciblés. Les copies sont liées au record avec une visibilité `InternalUsers`.
 - Les grands fichiers, polices/CMaps particuliers, PDF/A et l’accessibilité du PDF produit restent hors garantie du prototype.
 
 ## Installer dans une sandbox
 
 Les ressources compilées et les métadonnées sont déjà dans `force-app`. Le 13 octobre 2026, le projet a été déployé pour test dans la sandbox `optiTurpe`, avec ajout de l’onglet **Éditeur PDF** à **Capitole Énergie** et attribution du Permission Set à l’utilisateur de test. Les commandes ci-dessous permettent une installation dans une sandbox ; `--dry-run`, lorsqu’il est ajouté, valide seulement le déploiement.
+
+Le diagnostic a relevé `lockerServiceNext=false` dans cette sandbox : l’activation de LWS reste nécessaire pour y utiliser le moteur. Le déploiement du composant ne modifie pas ce paramètre. Les messages distinguent désormais une erreur de chargement du moteur d’une erreur de lecture des PDF, et proposent de réessayer.
 
 La configuration propre à Capitole Énergie a été récupérée dans la sandbox pour y ajouter l’onglet en conservant ses réglages. Cette configuration reste locale et n’est pas incluse dans le dépôt générique : le bouton GitHub déploie l’App Page et son onglet ; l’ajout à la navigation d’une autre organisation suit les étapes en début de README.
 
@@ -148,6 +158,8 @@ Les requêtes et écritures Files sont en mode utilisateur. Seul le journal inte
 ## Étape suivante
 
 Le détail des résultats exécutés est conservé dans [docs/VALIDATION_PROTOTYPE.md](docs/VALIDATION_PROTOTYPE.md).
+
+Le parcours, les responsabilités et les règles de changement de destination sont modélisés dans [docs/PARCOURS_MULTI_OBJETS.md](docs/PARCOURS_MULTI_OBJETS.md).
 
 Effectuer la recette **dans une page Lightning avec LWS activé**, notamment : chargement du bundle, ajout et déplacement, rendu des accents/images, copie et lecture par un utilisateur non administrateur, coupure réseau, déclencheurs de l’organisation et mesure du heap près du seuil de 1 Mo. Ne pas augmenter ce seuil sans mesure.
 

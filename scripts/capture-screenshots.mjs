@@ -14,7 +14,7 @@ const componentRoot = path.join(root, 'force-app/main/default/lwc');
 const bundle = await build({
     absWorkingDir: root, tsconfigRaw: {}, write: false, bundle: true, format: 'iife', platform: 'browser', target: 'es2022',
     define: { 'process.env.NODE_ENV': '"production"' },
-    stdin: { contents: `import {createElement} from 'lwc';import PdfEditor from 'c/pdfEditor';const app=createElement('c-pdf-editor',{is:PdfEditor});app.recordId='demo-record';document.querySelector('main').appendChild(app);`, resolveDir: root },
+    stdin: { contents: `import {createElement} from 'lwc';import PdfEditorApp from 'c/pdfEditorApp';const app=createElement('c-pdf-editor-app',{is:PdfEditorApp});document.querySelector('main').appendChild(app);`, resolveDir: root },
     plugins: [{ name: 'lwc-documentation-preview', setup(plugin) {
         plugin.onResolve({ filter: /^lwc$/ }, () => ({ path: path.join(root, 'node_modules/@lwc/engine-dom/dist/index.js') }));
         plugin.onResolve({ filter: /^c\// }, (args) => { const name = args.path.slice(2); return { path: path.join(componentRoot, name, `${name}.js`) }; });
@@ -35,7 +35,10 @@ const bundle = await build({
         plugin.onLoad({ filter: /\.(js|html|css)$/ }, async (args) => {
             if (!args.path.startsWith(componentRoot)) return undefined;
             const name = path.basename(path.dirname(args.path));
-            return { contents: transformSync(await readFile(args.path, 'utf8'), args.path, { namespace: 'c', name, apiVersion: 67 }).code, loader: 'js', resolveDir: path.dirname(args.path) };
+            let source = await readFile(args.path, 'utf8');
+            // Native shadow DOM in this preview does not inherit Salesforce's global utilities.
+            if (name === 'pdfEditorApp' && args.path.endsWith('.css')) source += '\n.slds-m-bottom_medium{margin-bottom:16px}.slds-p-horizontal_medium{padding-inline:16px}.slds-p-bottom_medium{padding-bottom:16px}.slds-m-bottom_small{margin:0 0 12px}.slds-m-top_small{margin-top:12px}';
+            return { contents: transformSync(source, args.path, { namespace: 'c', name, apiVersion: 67 }).code, loader: 'js', resolveDir: path.dirname(args.path) };
         });
     } }]
 });
@@ -66,11 +69,12 @@ try {
         const alerts = await page.getByRole('alert').allTextContents();
         if (alerts.length) throw new Error(alerts.join('\n'));
     };
-    await page.getByLabel('PDF de cet enregistrement (50 plus récents)').waitFor();
+    await page.getByRole('button', { name: 'Depuis mon ordinateur', exact: true }).waitFor();
     await ready();
     await page.screenshot({ path: path.join(output, '01-ouvrir-un-pdf.png'), fullPage: true });
-    await page.getByLabel('PDF de cet enregistrement (50 plus récents)').selectOption('demo-version');
-    await page.getByRole('button', { name: 'Ouvrir', exact: true }).click();
+    const initialChooser = page.waitForEvent('filechooser');
+    await page.getByRole('button', { name: 'Depuis mon ordinateur', exact: true }).click();
+    await (await initialChooser).setFiles({ name: 'Devis Atelier Horizon.pdf', mimeType: 'application/pdf', buffer: Buffer.from(pdf) });
     await page.getByRole('button', { name: 'Texte', exact: true }).waitFor();
     await ready();
     await page.getByRole('button', { name: 'Texte', exact: true }).click();
@@ -86,6 +90,19 @@ try {
     await commitInput('Position X (pt PDF)', '42');
     await commitInput('Position Y (pt PDF)', '177');
     await page.screenshot({ path: path.join(output, '02-ajouter-du-texte.png'), fullPage: true });
+    const downloadPromise = page.waitForEvent('download');
+    await page.getByRole('button', { name: 'Télécharger le PDF', exact: true }).click();
+    const download = await downloadPromise;
+    const chunks = [];
+    for await (const chunk of await download.createReadStream()) chunks.push(chunk);
+    if (!Buffer.concat(chunks).subarray(0, 5).equals(Buffer.from('%PDF-'))) throw new Error('The local download is not a PDF');
+    await ready();
+    await page.getByLabel('Type d’objet', { exact: true }).selectOption('Compteur__c');
+    await page.getByLabel('Enregistrement', { exact: true }).selectOption('demo-record');
+    await page.getByRole('button', { name: 'Utiliser cet enregistrement', exact: true }).click();
+    await page.getByRole('button', { name: 'Changer d’enregistrement', exact: true }).waitFor();
+    await ready();
+    if (await page.getByRole('button', { name: 'Texte : Bon pour accord', exact: true }).count() !== 1) throw new Error('Local edits were lost when selecting a destination');
     const stamp = await page.evaluate(() => {
         const canvas = document.createElement('canvas'); canvas.width = 480; canvas.height = 180;
         const ctx = canvas.getContext('2d'); ctx.strokeStyle = '#bc502e'; ctx.lineWidth = 8; ctx.strokeRect(8, 8, 464, 164);
@@ -107,6 +124,9 @@ try {
     const saved = await page.evaluate(() => window.demoSavedRequest);
     if (!saved?.payload?.startsWith('JVBERi0')) throw new Error('No PDF was produced by the screenshot flow');
     await page.screenshot({ path: path.join(output, '04-enregistrer-une-copie.png'), fullPage: true });
+    await page.getByLabel('PDF de cet enregistrement (50 plus récents)').selectOption('demo-version');
+    await page.getByRole('button', { name: 'Ouvrir', exact: true }).click();
+    await ready();
     // Check the second native file-picker button and narrow desktop layouts too.
     const localChooserPromise = page.waitForEvent('filechooser');
     await page.getByRole('button', { name: 'Depuis mon ordinateur', exact: true }).click();
