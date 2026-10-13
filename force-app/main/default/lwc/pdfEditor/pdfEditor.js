@@ -152,6 +152,12 @@ export default class PdfEditor extends NavigationMixin(LightningElement) {
     }
 
     handleFileSelection(event) { this.selectedFile = event.detail.value; }
+    handleChooseLocalFile() {
+        if (!this.disabled) this.template.querySelector('.local-file').click();
+    }
+    handleChooseImage() {
+        if (!this.disabled) this.template.querySelector('.image-file').click();
+    }
     async handleOpenSalesforce() {
         if (this.disabled || !await this.confirmDiscard()) return;
         this.busy = true;

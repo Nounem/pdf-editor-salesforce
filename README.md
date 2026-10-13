@@ -2,9 +2,17 @@
 
 Prototype d’éditeur PDF en Lightning Web Component. Il permet de compléter un PDF depuis une page d’enregistrement Salesforce, puis d’enregistrer **une copie** dans Salesforce Files.
 
+## Charte Salesforce et SLDS 2
+
+L’interface utilise les composants natifs `lightning-card`, `lightning-button`, `lightning-button-icon`, `lightning-input`, `lightning-combobox`, `lightning-badge` et `lightning-icon`. Leur apparence est fournie par Salesforce, selon le thème de l’organisation. La police est héritée de la page ; aucune couleur de marque ni surcharge `--slds-c-*` n’est imposée aux contrôles.
+
+Les panneaux, séparateurs et cadres de sélection du PDF consomment les **global styling hooks SLDS** (`--slds-g-*`) pour suivre les couleurs et espacements du thème. Des valeurs de repli permettent l’affichage lorsque ces hooks ne sont pas disponibles. Le document PDF conserve ses propres couleurs.
+
+Pour obtenir l’apparence **SLDS 2**, l’organisation doit utiliser un thème compatible, notamment **Salesforce Cosmos**. Déployer le composant ne change pas le thème de l’organisation. Voir [la comparaison officielle des versions SLDS](https://developer.salesforce.com/docs/platform/lwc/guide/create-components-css-slds1-slds2.html) et [les recommandations Salesforce sur les global styling hooks](https://www.lightningdesignsystem.com/2e1ef8501/v/0/p/777f5a-global-styling-hooks).
+
 ## Comment ça fonctionne
 
-Les captures suivantes montrent le **composant LWC réel et son moteur PDF dans un aperçu local**, avec un devis fictif. Les contrôles Lightning et les appels Salesforce sont simulés pour cette démonstration ; ce ne sont pas des captures d’une organisation de production.
+Les captures suivantes montrent le **composant LWC réel et son moteur PDF dans un aperçu local**, avec un devis fictif. Les contrôles Lightning et les appels Salesforce sont simulés pour cette démonstration ; ce ne sont pas des captures d’une organisation de production. L’aspect exact des contrôles natifs, des icônes et de la typographie dépend du thème Salesforce et reste à vérifier dans votre organisation.
 
 ### 1. Ouvrir un PDF
 

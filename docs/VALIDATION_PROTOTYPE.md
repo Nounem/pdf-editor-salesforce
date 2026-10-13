@@ -45,3 +45,11 @@ Le premier lot livre l’enrichissement et la sauvegarde d’une copie. L’édi
 Les captures de `docs/screenshots/` sont produites avec `npm run docs:screenshots` : le véritable composant LWC et le bundle PDF s’exécutent ensemble dans Edge, avec des contrôles Lightning simplifiés et des appels Apex simulés. Le script ouvre un devis fictif, ajoute et repositionne une mention et un tampon, puis vérifie la production d’un PDF lors de la sauvegarde simulée. Aucune organisation Salesforce n’est appelée.
 
 Ce parcours a mis en évidence une incompatibilité avec la méthode `convertToViewportRectangle`, absente du viewport PDF.js utilisé. Le composant calcule désormais son cadre de sélection à partir de deux appels à `convertToViewportPoint`. La compilation LWC, les quatre tests du modèle et les cinq tests d’interface ont été relancés avec succès après cette correction. La recette sous Lightning Web Security reste distincte.
+
+## Alignement visuel Salesforce
+
+Le bandeau personnalisé, la police décorative, la palette propre à l’éditeur et les surcharges `--slds-c-button-*` ont été retirés. La carte, les badges, les icônes et les boutons de sélection de fichiers utilisent désormais les composants Lightning natifs. Le CSS des panneaux PDF référence les hooks globaux sémantiques du thème, avec des valeurs de repli. Aucun hook global Salesforce n’est redéfini par le composant.
+
+Après cette refonte : compilation LWC réussie, 4 tests du modèle et 5 tests LWC réussis. Les quatre captures du README ont été régénérées avec le parcours complet texte, image et sauvegarde simulée. Les deux boutons de sélection de fichiers ouvrent le dialogue du navigateur ; un PDF local est également chargé. Le parcours vérifie l’absence de débordement horizontal de la page à 1 024 et 640 pixels de largeur.
+
+Les adaptateurs de documentation donnent un aperçu du placement des contrôles ; ils ne reproduisent pas intégralement les composants Salesforce. La validation Apex indiquée plus haut est antérieure à cette refonte. Le rendu natif sous Cosmos/SLDS 2, les personnalisations de marque et la navigation clavier dans les contrôles natifs doivent être vérifiés en organisation cible.

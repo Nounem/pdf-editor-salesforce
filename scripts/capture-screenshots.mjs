@@ -42,7 +42,7 @@ const bundle = await build({
 const pdf = await createDemoPdf();
 const fixtureScript = `window.demoPdfBase64=${JSON.stringify(Buffer.from(pdf).toString('base64'))};window.demoPdf=Uint8Array.from(atob(window.demoPdfBase64),c=>c.charCodeAt(0));`;
 const engine = await readFile('force-app/main/default/staticresources/lovePdfEngine.resource');
-const html = `<!doctype html><html lang="fr"><head><meta charset="utf-8"><title>PDF Editor — démonstration locale</title><style>body{margin:0;background:#eef1f2;color:#18313c;font-family:Arial,sans-serif}header.demo{display:flex;justify-content:space-between;align-items:center;padding:14px 30px;background:#18313c;color:#fff;font-size:12px}header.demo strong{font-size:14px;letter-spacing:.5px}.demo span{color:#d2dee2}main{margin:24px auto;max-width:1460px;padding:0 20px}h1,h2,p{margin:0}</style><script src="/engine.js" defer></script><script src="/fixture.js" defer></script><script src="/preview.js" defer></script></head><body><header class="demo"><strong>PDF Editor · Guide visuel</strong><span>Aperçu local · Données fictives · Appels Salesforce simulés</span></header><main></main></body></html>`;
+const html = `<!doctype html><html lang="fr"><head><meta charset="utf-8"><title>PDF Editor — démonstration locale</title><style>body{margin:0;background:#f3f3f3;color:#2e2e2e;font-family:Arial,sans-serif}header.demo{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;padding:14px 30px;background:white;border-bottom:1px solid #c9c9c9;font-size:12px}header.demo strong{font-size:14px;color:#03234d}.demo span{color:#5c5c5c}main{margin:24px auto;max-width:1460px;padding:0 20px}h1,h2,p{margin:0}</style><script src="/engine.js" defer></script><script src="/fixture.js" defer></script><script src="/preview.js" defer></script></head><body><header class="demo"><strong>PDF Editor · Guide visuel</strong><span>Aperçu local · Contrôles Lightning simulés · Données fictives</span></header><main></main></body></html>`;
 const routes = new Map([['/', ['text/html', html]], ['/engine.js', ['application/javascript', engine]], ['/fixture.js', ['application/javascript', fixtureScript]], ['/preview.js', ['application/javascript', bundle.outputFiles[0].contents]]]);
 const server = createServer((request, response) => {
     const route = routes.get(request.url);
@@ -92,7 +92,9 @@ try {
         ctx.fillStyle = '#bc502e'; ctx.textAlign = 'center'; ctx.font = 'bold 48px sans-serif'; ctx.fillText('VALIDÉ', 240, 82);
         ctx.font = '22px sans-serif'; ctx.fillText('ATELIER HORIZON', 240, 129); return canvas.toDataURL('image/png').split(',')[1];
     });
-    await page.getByLabel('Ajouter une image PNG ou JPEG').setInputFiles({ name: 'tampon-demo.png', mimeType: 'image/png', buffer: Buffer.from(stamp, 'base64') });
+    const imageChooserPromise = page.waitForEvent('filechooser');
+    await page.getByRole('button', { name: 'Image', exact: true }).click();
+    await (await imageChooserPromise).setFiles({ name: 'tampon-demo.png', mimeType: 'image/png', buffer: Buffer.from(stamp, 'base64') });
     await ready();
     await page.getByRole('button', { name: 'Placer l’outil au centre' }).click();
     await ready();
@@ -105,6 +107,16 @@ try {
     const saved = await page.evaluate(() => window.demoSavedRequest);
     if (!saved?.payload?.startsWith('JVBERi0')) throw new Error('No PDF was produced by the screenshot flow');
     await page.screenshot({ path: path.join(output, '04-enregistrer-une-copie.png'), fullPage: true });
+    // Check the second native file-picker button and narrow desktop layouts too.
+    const localChooserPromise = page.waitForEvent('filechooser');
+    await page.getByRole('button', { name: 'Depuis mon ordinateur', exact: true }).click();
+    await (await localChooserPromise).setFiles({ name: 'document-local.pdf', mimeType: 'application/pdf', buffer: Buffer.from(pdf) });
+    await ready();
+    for (const width of [1024, 640]) {
+        await page.setViewportSize({ width, height: 900 });
+        const overflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth);
+        if (overflow) throw new Error(`The editor overflows the page at ${width}px`);
+    }
     if (failures.length) throw new Error(failures.join('\n'));
     console.log('Captured 4 screenshots from the actual LWC and PDF engine using local Salesforce adapters.');
 } catch (error) {
