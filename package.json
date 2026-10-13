@@ -1,0 +1,22 @@
+{
+  "name": "love-pdf-sales",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Prototype d'édition PDF pour Salesforce Lightning",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "test": "node --test tests/model.test.mjs && sfdx-lwc-jest -- --runInBand",
+    "test:browser": "playwright test",
+    "check": "node scripts/check.mjs"
+  },
+  "dependencies": {
+    "pdf-lib": "1.17.1",
+    "pdfjs-dist": "6.4.299"
+  },
+  "devDependencies": {
+    "@lwc/compiler": "8.28.2",
+    "@playwright/test": "1.64.0",
+    "@salesforce/sfdx-lwc-jest": "7.9.0",
+    "esbuild": "0.28.2"
+  }
+}

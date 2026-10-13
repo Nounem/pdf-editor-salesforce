@@ -1,0 +1,80 @@
+<template>
+    <section class="editor" aria-label="LovePdfSales — Éditeur PDF">
+        <header class="masthead">
+            <div class="brand"><span class="brand-mark" aria-hidden="true">P<span>+</span></span><div><p class="eyebrow">LOVEPDFSALES · ATELIER DOCUMENTAIRE</p><h1>Vos PDF, au bon endroit.</h1></div></div>
+            <span class="badge">PROTOTYPE · 1 Mo / 20 pages</span>
+        </header>
+        <div lwc:if={message} class="notice error" role="alert">{message}</div>
+        <div lwc:if={success} class="notice success" role="status">{success}<lightning-button lwc:if={savedDocumentId} label="Voir la copie" variant="base" onclick={handleViewSaved}></lightning-button></div>
+        <div lwc:if={busy} class="loading" role="status">Traitement en cours…</div>
+        <div lwc:if={missingRecord} class="notice" role="status">Ouvrez cet éditeur sur une page d’enregistrement Salesforce pour pouvoir sauvegarder vos copies.</div>
+        <div lwc:if={contextChanged} class="notice error" role="alert">L’enregistrement a changé. Revenez au précédent pour sauvegarder, ou ouvrez un nouveau document.</div>
+        <div class="source-bar">
+            <div class="source-picker"><lightning-combobox label="PDF de cet enregistrement (50 plus récents)" placeholder="Choisir un fichier Salesforce" value={selectedFile} options={files} onchange={handleFileSelection} disabled={disabled}></lightning-combobox></div>
+            <lightning-button label="Ouvrir" onclick={handleOpenSalesforce} disabled={openDisabled}></lightning-button>
+            <label class="file-control">Depuis mon ordinateur<input type="file" accept="application/pdf,.pdf" onchange={handleLocalFile} disabled={disabled} aria-label="Ouvrir un PDF depuis mon ordinateur" /></label>
+        </div>
+        <template lwc:if={hasDocument}>
+            <div class="document-bar">
+                <div class="document-name"><lightning-input label="Nom de la copie" value={title} maxlength="100" onchange={handleTitle} disabled={disabled}></lightning-input></div>
+                <div class="save-group"><span class="document-status">{status}</span><lightning-button label="Enregistrer une copie" icon-name="utility:save" variant="brand" onclick={handleSave} disabled={saveDisabled}></lightning-button></div>
+            </div>
+            <div class="toolbar" role="group" aria-label="Outils d’édition">
+                <lightning-button label="Sélection" data-tool="select" variant={selectVariant} onclick={handleTool} disabled={disabled}></lightning-button>
+                <lightning-button label="Texte" data-tool="text" variant={textVariant} onclick={handleTool} disabled={disabled}></lightning-button>
+                <label class="file-control small">Image<input type="file" accept="image/png,image/jpeg" onchange={handleImage} disabled={disabled} aria-label="Ajouter une image PNG ou JPEG" /></label>
+                <lightning-button label="Masquer visuellement" data-tool="mask" variant={maskVariant} onclick={handleTool} disabled={disabled}></lightning-button>
+                <span class="toolbar-space"></span>
+                <lightning-button-icon icon-name="utility:undo" alternative-text="Annuler" onclick={handleUndo} disabled={undoDisabled}></lightning-button-icon>
+                <lightning-button-icon icon-name="utility:redo" alternative-text="Rétablir" onclick={handleRedo} disabled={redoDisabled}></lightning-button-icon>
+            </div>
+            <div class="workspace">
+                <aside class="page-panel" aria-label="Navigation des pages">
+                    <p class="eyebrow">DOCUMENT</p><strong>{pageLabel}</strong>
+                    <div class="page-controls"><lightning-button-icon icon-name="utility:chevronleft" alternative-text="Page précédente" onclick={handlePrevious} disabled={previousDisabled}></lightning-button-icon><lightning-button-icon icon-name="utility:chevronright" alternative-text="Page suivante" onclick={handleNext} disabled={nextDisabled}></lightning-button-icon></div>
+                    <lightning-combobox label="Zoom" value={zoomValue} options={zoomOptions} onchange={handleZoom} disabled={disabled}></lightning-combobox>
+                    <lightning-button label="Tourner de 90°" onclick={handleRotate} disabled={disabled}></lightning-button>
+                    <lightning-button label="Retirer la page" variant="destructive-text" onclick={handleDeletePage} disabled={deletePageDisabled}></lightning-button>
+                    <p class="muted">L’original est conservé. Les modifications sont enregistrées dans un nouveau fichier.</p>
+                </aside>
+                <div class="canvas-panel">
+                    <p class="placement-hint" aria-live="polite">{placementHint}</p>
+                    <lightning-button class="center-action" label="Placer l’outil au centre" variant="base" onclick={handleAddCentered} disabled={disabled}></lightning-button>
+                    <p lwc:if={rendering} class="render-status" role="status">Préparation de l’aperçu…</p>
+                    <div class="canvas-scroll">
+                        <div class="page-stage" style={stageStyle} onclick={handleStageClick}>
+                            <canvas aria-label="Aperçu du PDF modifié"></canvas>
+                            <template for:each={overlays} for:item="element">
+                                <button key={element.id} class={element.className} style={element.style} data-element-id={element.id} aria-label={element.label} aria-pressed={element.pressed} title={element.label} onclick={handleSelect} onkeydown={handleElementKey} onpointerdown={handlePointerDown} onpointermove={handlePointerMove} onpointerup={handlePointerUp} onpointercancel={handlePointerCancel} disabled={disabled}></button>
+                            </template>
+                        </div>
+                    </div>
+                </div>
+                <aside class="properties" aria-label="Propriétés de l’ajout sélectionné">
+                    <p class="eyebrow">PROPRIÉTÉS</p>
+                    <template lwc:if={selected}>
+                        <template lwc:if={selectedIsText}>
+                            <lightning-input label="Texte (une ligne)" value={selected.text} data-property="text" maxlength="200" oncommit={handleProperty} disabled={disabled}></lightning-input>
+                            <lightning-input type="number" label="Taille du texte (pt)" value={selected.fontSize} data-property="fontSize" min="6" max="96" oncommit={handleProperty} disabled={disabled}></lightning-input>
+                            <lightning-input type="color" label="Couleur" value={selected.color} data-property="color" onchange={handleProperty} disabled={disabled}></lightning-input>
+                        </template>
+                        <lightning-input type="number" label="Position X (pt PDF)" value={selected.x} data-property="x" step="0.1" oncommit={handleProperty} disabled={disabled}></lightning-input>
+                        <lightning-input type="number" label="Position Y (pt PDF)" value={selected.y} data-property="y" step="0.1" oncommit={handleProperty} disabled={disabled}></lightning-input>
+                        <template lwc:if={selectedHasSize}>
+                            <lightning-input type="number" label="Largeur (pt)" value={selected.width} data-property="width" min="1" max="2000" step="0.1" oncommit={handleProperty} disabled={disabled}></lightning-input>
+                            <lightning-input type="number" label="Hauteur (pt)" value={selected.height} data-property="height" min="1" max="2000" step="0.1" oncommit={handleProperty} disabled={disabled}></lightning-input>
+                        </template>
+                        <lightning-button label="Supprimer cet ajout" variant="destructive-text" onclick={handleRemove} disabled={disabled}></lightning-button>
+                        <p class="muted">Déplacez le cadre ou utilisez les flèches du clavier. Maj + flèche : déplacement plus rapide.</p>
+                    </template>
+                    <template lwc:else><div class="property-empty"><span aria-hidden="true">↖</span><p>Sélectionnez un ajout sur la page pour le modifier.</p></div></template>
+                    <div class="mask-note"><strong>Masquer n’efface pas.</strong><p>Le texte sous une zone blanche peut rester récupérable. N’utilisez pas cet outil pour retirer des informations confidentielles.</p></div>
+                </aside>
+            </div>
+        </template>
+        <template lwc:else>
+            <div class="empty-state"><div class="paper-symbol" aria-hidden="true"><span>PDF</span><i></i><i></i><i></i><b>+</b></div><p class="eyebrow">DE L’IDÉE AU DOCUMENT</p><h2>Une note. Un logo.<br />Votre document, complété.</h2><p>Ouvrez un PDF, placez vos ajouts et retrouvez<br />la copie dans les fichiers Salesforce.</p><div class="capabilities"><span>Texte &amp; images</span><span>Rotation des pages</span><span>Original conservé</span></div></div>
+        </template>
+        <footer>LovePdfSales · Les ajouts restent modifiables pendant cette session. Leur réédition après fermeture n’est pas encore disponible.</footer>
+    </section>
+</template>

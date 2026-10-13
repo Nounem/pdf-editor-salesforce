@@ -1,0 +1,12 @@
+node_modules/
+.npm-cache/
+.browser-cache/
+test-results/
+playwright-report/
+coverage/
+.sf/
+.sfdx/
+.local/
+.env
+.env.*
+!.env.example

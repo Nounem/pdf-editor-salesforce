@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<LightningComponentBundle xmlns="http://soap.sforce.com/2006/04/metadata">
+    <apiVersion>67.0</apiVersion>
+    <isExposed>true</isExposed>
+    <masterLabel>LovePdfSales — Éditeur PDF</masterLabel>
+    <description>Ajoutez texte et images à un PDF et enregistrez une copie dans Salesforce Files. Prototype : 1 Mo et 20 pages.</description>
+    <targets><target>lightning__RecordPage</target></targets>
+    <targetConfigs><targetConfig targets="lightning__RecordPage"><supportedFormFactors><supportedFormFactor type="Large" /></supportedFormFactors></targetConfig></targetConfigs>
+</LightningComponentBundle>
