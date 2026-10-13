@@ -89,7 +89,7 @@ Vérifications locales après correction du moteur :
 - Parcours réel LWC/moteur avec adaptateurs Salesforce : ouverture locale, édition, téléchargement valide, destination Compteur choisie sans perte d’ajouts et sauvegarde simulée ; 4 captures régénérées.
 - Audit des dépendances de production : 0 vulnérabilité signalée. Ressource compilée : 2 131 061 octets.
 
-Le moteur final et les messages de diagnostic ont ensuite été effectivement déployés dans `optiTurpe` : `0AfAa00000qIuCIKA0`, `Succeeded`, `checkOnly=false`, 4 composants mis à jour et 34 tests déclarés terminés par le rapport Salesforce, sans erreur. Les paramètres de sécurité ne faisaient pas partie de ce déploiement.
+Le moteur final et les messages de diagnostic ont ensuite été effectivement déployés dans `optiTurpe` : `0AfAa00000qIqyIKAS`, `Succeeded`, `checkOnly=false`, 15 composants déployés et 6 tests Apex réussis. L’identifiant et les composants ont été vérifiés explicitement : l’entrée CLI « déploiement le plus récent » avait été remplacée par une opération d’un autre projet exécutée en parallèle. Les paramètres de sécurité ne faisaient pas partie du déploiement PDF.
 
 ### Erreur signalée à l’ouverture de l’éditeur
 
