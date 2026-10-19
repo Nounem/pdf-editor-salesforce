@@ -22,7 +22,9 @@ Validée le 19 octobre 2026. Objectif : un éditeur utilisable par tous, en 3 é
 
 ## Phase 2 — Simplifier le parcours
 
-- [ ] Action rapide « Modifier un PDF » sur les pages d’enregistrement
+Décisions du 19 octobre 2026 : **« Nouvelle version du fichier » par défaut** ; **Opportunité** en priorité (objet le plus utilisé).
+
+- [ ] Action rapide « Modifier un PDF » sur les pages d’enregistrement (Opportunité d’abord)
 - [ ] Choix de l’enregistrement seulement à l’enregistrement (supprimer « Changer d’enregistrement »)
 - [ ] « Nouvelle version du fichier » / « Nouveau fichier » / « Télécharger »
 
