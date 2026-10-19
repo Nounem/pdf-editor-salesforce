@@ -138,8 +138,15 @@ it('prevents saving an open document to a different record after navigation', as
     expect(element.shadowRoot.querySelector('[role="alert"]').textContent).toContain('enregistrement a changé');
 });
 
+const button = (element, label) => [...element.shadowRoot.querySelectorAll('lightning-button')].find((item) => item.label === label);
+async function addElement(element, tool = 'Texte') {
+    button(element, tool).click(); await flush();
+    button(element, 'Placer l’outil au centre').click(); await flush(); await flush();
+}
+
 it('asks before closing unsaved work and prevents closing during a save', async () => {
     const element = await mountAndOpen();
+    await addElement(element);
     LightningConfirm.open.mockResolvedValueOnce(false).mockResolvedValueOnce(true);
     await expect(element.confirmClose()).resolves.toBe(false);
     await expect(element.confirmClose()).resolves.toBe(true);
@@ -205,6 +212,7 @@ it('downloads an edited local PDF without calling Salesforce save', async () => 
 
 it('requires confirmation and resets a Salesforce document before switching to another record', async () => {
     const element = await mountAndOpen();
+    await addElement(element);
     LightningConfirm.open.mockResolvedValueOnce(false).mockResolvedValueOnce(true);
     await expect(element.prepareRecordChange('006other')).resolves.toBe(false);
     expect(element.shadowRoot.querySelector('canvas')).not.toBeNull();
@@ -212,4 +220,47 @@ it('requires confirmation and resets a Salesforce document before switching to a
     element.recordId = '006other';
     await flush(); await flush();
     expect(element.shadowRoot.querySelector('canvas')).toBeNull();
+});
+
+it('treats a freshly opened document as unchanged', async () => {
+    const element = await mountAndOpen();
+    expect(element.shadowRoot.querySelector('.document-status').textContent).toBe('Aucune modification');
+    await expect(element.confirmClose()).resolves.toBe(true);
+    expect(LightningConfirm.open).not.toHaveBeenCalled();
+});
+
+it('lets the user choose a record even when the engine failed to load', async () => {
+    loadScript.mockRejectedValue(new Error('Bibliothèque indisponible'));
+    const element = createElement('c-pdf-editor', { is: PdfEditor });
+    document.body.appendChild(element);
+    await flush();
+    await expect(element.prepareRecordChange('001record')).resolves.toBe(true);
+});
+
+it('shows additions live without rebuilding or re-rendering the PDF', async () => {
+    const element = await mountAndOpen();
+    const handle = await window.LovePdfEngine.open.mock.results[0].value;
+    expect(handle.render).toHaveBeenCalledTimes(1);
+    await addElement(element);
+    expect(element.shadowRoot.querySelector('.text-content').textContent).toBe('Votre texte');
+    expect(handle.render).toHaveBeenCalledTimes(1);
+    expect(window.LovePdfEngine.exportPdf).not.toHaveBeenCalled();
+    expect(button(element, 'Texte').disabled).toBe(false);
+    button(element, 'Tourner de 90°').click(); await flush(); await flush();
+    expect(handle.render).toHaveBeenCalledTimes(2);
+    expect(handle.render).toHaveBeenLastCalledWith(0, expect.anything(), 0.85, 90);
+});
+
+it('resizes a mask with its handle', async () => {
+    HTMLElement.prototype.setPointerCapture = jest.fn();
+    const element = await mountAndOpen();
+    await addElement(element, 'Masquer visuellement');
+    const handle = element.shadowRoot.querySelector('.resize-handle');
+    const pointer = (type, x, y) => handle.dispatchEvent(new MouseEvent(type, { button: 0, clientX: x, clientY: y, bubbles: true }));
+    pointer('pointerdown', 100, 100);
+    pointer('pointermove', 140, 120);
+    pointer('pointerup', 140, 120);
+    await flush();
+    expect(Number(element.shadowRoot.querySelector('[data-property="width"]').value)).toBeGreaterThan(140);
+    expect(Number(element.shadowRoot.querySelector('[data-property="height"]').value)).toBeGreaterThan(32);
 });

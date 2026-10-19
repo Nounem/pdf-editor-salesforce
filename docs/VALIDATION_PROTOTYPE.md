@@ -93,10 +93,16 @@ Le moteur final et les messages de diagnostic ont ensuite été effectivement d�
 
 ### Erreur signalée à l’ouverture de l’éditeur
 
-Les paramètres récupérés de la sandbox montrent `lockerServiceNext=false` : l’organisation utilise Lightning Locker. Le moteur actuel nécessite LWS. Ce paramètre n’a pas été modifié ; il concerne l’ensemble des composants de l’organisation. Voir [la documentation Salesforce sur ce paramètre](https://developer.salesforce.com/docs/platform/lightning-components-security/guide/lws-enable-scratch-orgs.html).
+Les paramètres récupérés lors du diagnostic montraient `lockerServiceNext=false` : l’organisation utilisait Lightning Locker. Le moteur actuel nécessite LWS. Ce paramètre n’avait pas été modifié à ce stade, car il concerne l’ensemble des composants de l’organisation. Son activation après accord explicite est consignée ci-dessous. Voir [la documentation Salesforce sur ce paramètre](https://developer.salesforce.com/docs/platform/lightning-components-security/guide/lws-enable-scratch-orgs.html).
 
 Un second problème a été reproduit avec la bibliothèque locale LWS : `structuredClone` perd les propriétés du message PDF.js contenant des buffers transférables, puis peut refuser des objets proxifiés lors du rendu. Avant correction, l’ouverture ou le rendu attendait indéfiniment ; après injection d’un clonage JavaScript limité au bundle PDF, les 3 scénarios passent sous LWS. Les transferts de buffers sont ignorés puisque le moteur reste dans le même thread. Aucun global du navigateur ni paramètre de sécurité n’est remplacé.
 
 L’interface identifie maintenant la phase en erreur (moteur ou liste de PDF), garde les détails disponibles et propose de réessayer. Une recherche en erreur ne bloque pas l’ouverture locale si le moteur est chargé. Les réponses obsolètes d’un ancien enregistrement sont ignorées.
 
-**Limite de validation :** le navigateur automatisé connecté à l’organisation est redirigé vers l’écran Salesforce de changement de mot de passe. Il n’a donc pas permis de reproduire visuellement le message initial ni de valider la page native. Les tests LWS locaux ne remplacent pas la recette dans Capitole Énergie. L’activation de LWS et cette recette restent nécessaires ; aucune correction complète de l’erreur en organisation n’est revendiquée à ce stade.
+**Limite de validation lors du diagnostic :** le navigateur automatisé connecté à l’organisation était redirigé vers l’écran Salesforce de changement de mot de passe. Il n’a donc pas permis de reproduire visuellement le message initial ni de valider la page native. Les tests LWS locaux ne remplacent pas la recette dans Capitole Énergie ; aucune correction complète de l’erreur en organisation n’était revendiquée à ce stade.
+
+## Activation de LWS après accord de l’administrateur
+
+Le 13 octobre 2026, après accord explicite, la cible `optiTurpe` a été vérifiée comme sandbox et ses paramètres de sécurité ont été relus avant modification. Le déploiement `0AfAa00000qIsTqKAK` a réussi (`Succeeded`, `checkOnly=false`, 1 composant de configuration). Le paquet envoyé ne contient que `sessionSettings.lockerServiceNext=true`.
+
+Les tentatives précédentes ont été rejetées sans modification : problèmes de format de l’archive, puis refus Salesforce de redéployer un réglage MFA inchangé inclus dans la configuration complète récupérée. Le paquet final ne contient aucun réglage MFA. Les sauvegardes de configuration restent dans les dossiers locaux exclus de Git ; aucun paramètre propre à l’organisation n’est ajouté au déploiement générique GitHub.

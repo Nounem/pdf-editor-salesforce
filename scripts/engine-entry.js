@@ -14,7 +14,8 @@ async function inspect(bytes) {
     if (new TextDecoder().decode(bytes.subarray(0, 5)) !== '%PDF-') throw new Error('Le fichier ne possède pas une signature PDF valide.');
     let document;
     try {
-        document = await PDFDocument.load(bytes, { ignoreEncryption: false, throwOnInvalidObject: true, updateMetadata: false });
+        // Real-world PDFs often contain minor invalid objects; pdf-lib keeps them as-is.
+        document = await PDFDocument.load(bytes, { ignoreEncryption: false, throwOnInvalidObject: false, updateMetadata: false });
     } catch (error) {
         if (/encrypt/i.test(error.message)) throw new Error('Les PDF chiffrés ne sont pas pris en charge.');
         throw new Error('Ce PDF ne peut pas être ouvert de façon fiable.');
@@ -28,11 +29,11 @@ async function inspect(bytes) {
             typeof object.has === 'function' && object.has(PDFName.of('ByteRange')));
     if (signed) throw new Error('Les PDF signés ou contenant un champ de signature ne sont pas modifiables dans ce prototype.');
     if (form.getFields().length) throw new Error('Les formulaires interactifs sont exclus de cette première version.');
-    // Page reconstruction does not preserve all interactive structures.
-    if (document.getPages().some((page) => page.node.Annots()?.size() > 0)) {
-        throw new Error('Ce PDF contient des annotations ou des liens interactifs non pris en charge dans ce prototype.');
-    }
     return document;
+}
+
+function hasAnnotations(document) {
+    return document.getPages().some((page) => page.node.Annots()?.size() > 0);
 }
 
 function color(hex) {
@@ -47,6 +48,9 @@ function point(viewport, x, y) {
 async function exportPdf(source, state, assets) {
     const original = await inspect(source);
     if (!state.pages.length || state.pages.length > MAX_PAGES) throw new Error('Nombre de pages invalide.');
+    // Page reconstruction cannot preserve links and comments reliably: they are
+    // dropped from the copy, and the editor tells the user when it opens the file.
+    for (const page of original.getPages()) page.node.delete(PDFName.of('Annots'));
     const output = await PDFDocument.create();
     // Stable bytes are required when retrying an idempotent save after a lost response.
     output.setCreationDate(original.getCreationDate() || new Date(0));
@@ -58,17 +62,19 @@ async function exportPdf(source, state, assets) {
         output.addPage(page);
         page.setRotation(degrees((page.getRotation().angle + item.rotation) % 360));
         for (const element of item.elements) {
+            // Elements are created upright for the page orientation shown at that time.
+            const rotate = degrees(element.rotation || 0);
             if (element.type === 'text') {
-                page.drawText(element.text, { x: element.x, y: element.y, size: element.fontSize, font, color: color(element.color) });
+                page.drawText(element.text, { x: element.x, y: element.y, size: element.fontSize, font, color: color(element.color), rotate });
             } else if (element.type === 'mask') {
-                page.drawRectangle({ x: element.x, y: element.y, width: element.width, height: element.height, color: rgb(1, 1, 1) });
+                page.drawRectangle({ x: element.x, y: element.y, width: element.width, height: element.height, color: rgb(1, 1, 1), rotate });
             } else if (element.type === 'image') {
                 if (!imageCache.has(element.assetId)) {
                     const asset = assets.get(element.assetId);
                     if (!asset) throw new Error('Image introuvable.');
                     imageCache.set(element.assetId, asset.mime === 'image/png' ? await output.embedPng(asset.bytes) : await output.embedJpg(asset.bytes));
                 }
-                page.drawImage(imageCache.get(element.assetId), { x: element.x, y: element.y, width: element.width, height: element.height });
+                page.drawImage(imageCache.get(element.assetId), { x: element.x, y: element.y, width: element.width, height: element.height, rotate });
             }
         }
     }
@@ -90,6 +96,7 @@ async function open(bytes) {
     const font = await inspected.embedFont(StandardFonts.Helvetica);
     return {
         pageCount: pdf.numPages,
+        annotations: hasAnnotations(inspected),
         async viewport(index, scale, rotation) {
             const page = await pdf.getPage(index + 1);
             return page.getViewport({ scale, rotation: (page.rotate + rotation) % 360 });

@@ -2,7 +2,10 @@ import { readFile, readdir } from 'node:fs/promises';
 import { transformSync } from '@lwc/compiler';
 const directory = 'force-app/main/default/lwc';
 let count = 0;
-for (const name of await readdir(directory)) {
+// Editor-generated files such as jsconfig.json sit beside the component folders.
+for (const entry of await readdir(directory, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    const name = entry.name;
     for (const file of await readdir(`${directory}/${name}`)) {
         if (!/\.(js|html|css)$/.test(file)) continue;
         const result = transformSync(await readFile(`${directory}/${name}/${file}`, 'utf8'), file, { name, namespace: 'c', apiVersion: 67 });

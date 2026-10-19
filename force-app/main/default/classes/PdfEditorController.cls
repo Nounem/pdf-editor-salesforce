@@ -145,10 +145,13 @@ public with sharing class PdfEditorController {
                 SaveResult duplicate = previousResult(key, fingerprint);
                 if (duplicate != null) return duplicate;
             }
-            throw problem('Enregistrement impossible. Vérifiez vos droits sur les fichiers et les règles de validation, puis réessayez.');
+            // Keep the real cause (trigger, validation rule, access) visible to users and admins.
+            System.debug(LoggingLevel.ERROR, 'PdfEditorController.saveCopy ' + error.getDmlType(0) + ': ' + error.getDmlMessage(0));
+            throw problem('Enregistrement impossible : ' + error.getDmlMessage(0) + ' Vos modifications sont conservées.');
         } catch (Exception error) {
             Database.rollback(point);
-            throw problem('La copie n’a pas été enregistrée. Vous pouvez réessayer sans perdre vos modifications.');
+            System.debug(LoggingLevel.ERROR, 'PdfEditorController.saveCopy ' + error.getTypeName() + ': ' + error.getMessage());
+            throw problem('La copie n’a pas été enregistrée (' + error.getMessage() + '). Vous pouvez réessayer sans perdre vos modifications.');
         }
     }
 

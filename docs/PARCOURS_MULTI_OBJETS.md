@@ -53,4 +53,4 @@ Le moteur fonctionne dans le thread principal. Le clonage natif des messages PDF
 
 La bibliothèque officielle `@locker/sandbox` est une dépendance de test uniquement. Les tests répètent ouverture, rendu, export avec texte et image, rotation et refus des PDF interactifs sous cette bibliothèque. Ils complètent la recette Salesforce, sans la remplacer.
 
-La sandbox `optiTurpe` utilise actuellement l’ancien Lightning Locker (`lockerServiceNext=false`). Une activation de LWS concerne toute l’organisation et doit être décidée par son administrateur. Les métadonnées génériques du projet n’incluent aucun changement de ces paramètres.
+La sandbox `optiTurpe` utilisait l’ancien Lightning Locker (`lockerServiceNext=false`) lors du diagnostic. Après accord explicite de l’administrateur, LWS a été activé le 13 octobre 2026 par un déploiement distinct. Cette activation concerne toute la sandbox. Les métadonnées génériques du projet n’incluent aucun changement de ces paramètres.

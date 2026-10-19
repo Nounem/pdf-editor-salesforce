@@ -6,7 +6,10 @@ import engineResource from '@salesforce/resourceUrl/lovePdfEngine';
 import listRecordPdfs from '@salesforce/apex/PdfEditorController.listRecordPdfs';
 import loadSmallPdf from '@salesforce/apex/PdfEditorController.loadSmallPdf';
 import saveCopy from '@salesforce/apex/PdfEditorController.saveCopy';
-import { MAX_BYTES, MAX_IMAGE_BYTES, MAX_IMAGE_PIXELS, createState, createHistory, commit, undo, redo, fromBase64, toBase64, boundedNumber } from 'c/pdfEditState';
+import { MAX_BYTES, MAX_IMAGE_BYTES, MAX_IMAGE_PIXELS, createState, createHistory, commit, undo, redo, fromBase64, toBase64, boundedNumber, screenBox, visualAngle } from 'c/pdfEditState';
+
+const BUSY_MESSAGE = 'Attendez la fin du traitement avant de changer d’enregistrement.';
+const MIN_RESIZE_PIXELS = 8;
 
 export default class PdfEditor extends NavigationMixin(LightningElement) {
     @api recordId;
@@ -19,6 +22,7 @@ export default class PdfEditor extends NavigationMixin(LightningElement) {
     rendering = false;
     message = '';
     success = '';
+    notice = '';
     files = [];
     selectedFile = '';
     history;
@@ -30,7 +34,6 @@ export default class PdfEditor extends NavigationMixin(LightningElement) {
     sourceVersionId = null;
     sourceBytes;
     sourceHandle;
-    previewHandle;
     viewport;
     engine;
     assets = new Map();
@@ -43,6 +46,7 @@ export default class PdfEditor extends NavigationMixin(LightningElement) {
     filesRecordId;
     renderRevision = 0;
     renderedRevision = -1;
+    renderedKey;
     renderTimer;
     disconnected = false;
     drag;
@@ -68,8 +72,6 @@ export default class PdfEditor extends NavigationMixin(LightningElement) {
         this.disconnected = true;
         clearTimeout(this.renderTimer);
         window.removeEventListener('beforeunload', this.beforeUnload);
-        // A running render owns its handle until it completes.
-        if (!this.rendering) this.previewHandle?.destroy();
         this.sourceHandle?.destroy();
         this.assets.clear();
         this.sourceBytes = null;
@@ -115,9 +117,13 @@ export default class PdfEditor extends NavigationMixin(LightningElement) {
 
     get hasDocument() { return Boolean(this.history); }
     get noDocument() { return !this.hasDocument; }
-    get disabled() { return this.busy || this.rendering || !this.ready; }
+    // Rendering the preview never blocks the controls: only loading, saving and exporting do.
+    get disabled() { return this.busy || !this.ready; }
     get openDisabled() { return this.disabled || !this.selectedFile; }
-    get saveDisabled() { return this.disabled || !this.history || !this.recordId || this.contextPending || this.contextChanged || !this.dirty; }
+    get saveDisabled() {
+        return this.disabled || !this.history || !this.recordId || this.contextPending || this.contextChanged
+            || (!this.dirty && Boolean(this.savedDocumentId));
+    }
     get contextChanged() { return this.hasDocument && this.documentRecordId !== this.recordId; }
     get missingRecord() { return !this.recordId; }
     get undoDisabled() { return this.disabled || !this.history?.past.length; }
@@ -133,7 +139,10 @@ export default class PdfEditor extends NavigationMixin(LightningElement) {
     get zoomLabel() { return `${Math.round(this.zoom * 100)} %`; }
     get stageStyle() { return this.viewport ? `width:${this.viewport.width}px;height:${this.viewport.height}px;` : ''; }
     get dirty() { return Boolean(this.history) && (JSON.stringify(this.history.present) !== this.savedSnapshot || this.title !== this.savedTitle); }
-    get status() { return this.dirty ? 'Modifications non enregistrées' : 'Copie enregistrée'; }
+    get status() {
+        if (this.dirty) return 'Modifications non enregistrées';
+        return this.savedDocumentId ? 'Copie enregistrée' : 'Aucune modification';
+    }
     get selectVariant() { return this.tool === 'select' ? 'brand' : 'neutral'; }
     get textVariant() { return this.tool === 'text' ? 'brand' : 'neutral'; }
     get maskVariant() { return this.tool === 'mask' ? 'brand' : 'neutral'; }
@@ -141,24 +150,32 @@ export default class PdfEditor extends NavigationMixin(LightningElement) {
         if (this.pendingImage) return 'Cliquez sur la page pour placer votre image.';
         if (this.tool === 'text') return 'Cliquez sur la page pour ajouter une ligne de texte.';
         if (this.tool === 'mask') return 'Cliquez sur la page pour masquer une zone. Le contenu reste récupérable.';
-        return 'Sélectionnez un ajout pour le déplacer ou modifier ses propriétés.';
+        return 'Sélectionnez un ajout pour le déplacer, le redimensionner ou modifier ses propriétés.';
     }
+    get pageRotation() { return this.viewport?.rotation || 0; }
+    toScreen = (x, y) => this.viewport.convertToViewportPoint(x, y);
+
+    // Additions are drawn live over the original page; the PDF is only built on download or save.
     get overlays() {
         if (!this.viewport || !this.page) return [];
         return this.page.elements.map((element) => {
-            const item = this.drag?.id === element.id ? { ...element, x: this.drag.x, y: this.drag.y } : element;
-            const rectangle = [
-                ...this.viewport.convertToViewportPoint(item.x, item.y),
-                ...this.viewport.convertToViewportPoint(item.x + item.width, item.y + item.height)
-            ];
-            const left = Math.min(rectangle[0], rectangle[2]);
-            const top = Math.min(rectangle[1], rectangle[3]);
+            const item = this.drag?.id === element.id ? { ...element, ...this.drag.patch } : element;
+            const box = screenBox(item, this.toScreen);
+            const selected = item.id === this.selectedId;
+            const color = /^#[0-9a-f]{6}$/i.test(item.color) ? item.color : '#000000';
             return {
                 id: item.id,
                 label: item.type === 'text' ? `Texte : ${item.text}` : item.type === 'image' ? 'Image ajoutée' : 'Masquage visuel',
-                style: `left:${left}px;top:${top}px;width:${Math.max(16, Math.abs(rectangle[2] - rectangle[0]))}px;height:${Math.max(16, Math.abs(rectangle[3] - rectangle[1]))}px;`,
-                className: item.id === this.selectedId ? 'element selected' : 'element',
-                pressed: item.id === this.selectedId
+                style: `left:${box.left}px;top:${box.top}px;width:${Math.max(16, box.width)}px;height:${Math.max(16, box.height)}px;`,
+                contentStyle: `width:${item.width * this.zoom}px;height:${item.height * this.zoom}px;transform:translate(-50%,-50%) rotate(${visualAngle(this.pageRotation, item.rotation)}deg);`,
+                textStyle: item.type === 'text' ? `font-size:${item.fontSize * this.zoom}px;color:${color};` : '',
+                text: item.text,
+                imageUrl: this.assets.get(item.assetId)?.url,
+                isText: item.type === 'text',
+                isImage: item.type === 'image',
+                resizable: selected && item.type !== 'text',
+                className: selected ? 'element selected' : 'element',
+                pressed: selected
             };
         });
     }
@@ -209,15 +226,16 @@ export default class PdfEditor extends NavigationMixin(LightningElement) {
 
     @api
     async confirmClose() {
-        if (this.disabled) throw new Error('Attendez la fin du traitement avant de changer d’enregistrement.');
+        if (this.busy) throw new Error(BUSY_MESSAGE);
         const confirmed = await this.confirmDiscard();
-        if (this.disabled) throw new Error('Attendez la fin du traitement avant de changer d’enregistrement.');
+        if (this.busy) throw new Error(BUSY_MESSAGE);
         return confirmed;
     }
 
+    // Only a running load, export or save blocks a record change; a missing engine does not.
     @api
     async prepareRecordChange(nextRecordId) {
-        if (this.disabled) throw new Error('Attendez la fin du traitement avant de changer d’enregistrement.');
+        if (this.busy) throw new Error(BUSY_MESSAGE);
         if (this.recordId === nextRecordId) return true;
         const linkedDocument = this.hasDocument && this.sourceVersionId;
         if (linkedDocument && !await this.confirmClose()) return false;
@@ -227,22 +245,20 @@ export default class PdfEditor extends NavigationMixin(LightningElement) {
                 // A Salesforce source belongs to its original record. Never silently relink it.
                 clearTimeout(this.renderTimer);
                 await this.sourceHandle?.destroy();
-                await this.previewHandle?.destroy();
                 this.sourceHandle = null;
-                this.previewHandle = null;
                 this.sourceBytes = null;
                 this.sourceVersionId = null;
                 this.history = null;
                 this.viewport = null;
+                this.renderedKey = null;
                 this.assets.clear();
                 this.pendingImage = null;
                 this.selectedId = null;
                 this.drag = null;
+                this.notice = '';
             }
             // Local PDFs keep their edits when the user explicitly chooses a destination.
             this.documentRecordId = nextRecordId;
-            this.savedSnapshot = '';
-            this.savedTitle = '';
             this.saveRequestId = null;
             this.savedDocumentId = null;
             this.success = '';
@@ -274,8 +290,6 @@ export default class PdfEditor extends NavigationMixin(LightningElement) {
     async openBytes(bytes, name, sourceVersionId, recordId) {
         const handle = await this.engine.open(bytes);
         await this.sourceHandle?.destroy();
-        await this.previewHandle?.destroy();
-        this.previewHandle = null;
         this.sourceHandle = handle;
         this.sourceBytes = bytes;
         this.sourceVersionId = sourceVersionId;
@@ -287,10 +301,13 @@ export default class PdfEditor extends NavigationMixin(LightningElement) {
         this.pendingImage = null;
         this.pageIndex = 0;
         this.viewport = null;
+        this.renderedKey = null;
         this.tool = 'select';
-        this.savedSnapshot = '';
-        this.savedTitle = '';
+        // A freshly opened document has no unsaved changes.
+        this.savedSnapshot = JSON.stringify(this.history.present);
+        this.savedTitle = this.title;
         this.success = '';
+        this.notice = handle.annotations ? 'Les liens et commentaires de ce PDF ne seront pas repris dans la copie.' : '';
         this.saveRequestId = null;
         this.savedDocumentId = null;
         this.scheduleRender();
@@ -304,25 +321,22 @@ export default class PdfEditor extends NavigationMixin(LightningElement) {
         }, 0);
     }
 
+    // Renders the original page only. Additions are HTML overlays, so most edits need no render.
     async renderPage() {
         const canvas = this.template.querySelector('canvas');
-        if (!canvas || !this.sourceBytes || this.rendering || this.disconnected) return;
+        if (!canvas || !this.sourceHandle || !this.page || this.rendering || this.disconnected) return;
         const revision = this.renderRevision;
+        const key = `${this.page.sourceIndex}:${this.page.rotation}:${this.zoom}`;
+        if (key === this.renderedKey) { this.renderedRevision = revision; return; }
         this.rendering = true;
         try {
-            // Rendering the actual exported bytes keeps the preview faithful to the saved PDF.
-            const bytes = await this.engine.exportPdf(this.sourceBytes, this.history.present, this.assets);
-            await this.previewHandle?.destroy();
-            this.previewHandle = await this.engine.open(bytes);
-            if (this.disconnected) return;
-            this.viewport = await this.previewHandle.render(this.pageIndex, canvas, this.zoom, 0);
+            this.viewport = await this.sourceHandle.render(this.page.sourceIndex, canvas, this.zoom, this.page.rotation);
+            this.renderedKey = key;
         } catch (error) { this.fail(error); }
         finally {
             this.renderedRevision = revision;
             this.rendering = false;
-            if (this.disconnected) {
-                await this.previewHandle?.destroy();
-            } else if (revision !== this.renderRevision) {
+            if (!this.disconnected && revision !== this.renderRevision) {
                 this.renderTimer = setTimeout(() => this.renderPage(), 0);
             }
         }
@@ -378,7 +392,7 @@ export default class PdfEditor extends NavigationMixin(LightningElement) {
             const { width, height } = bitmap;
             bitmap.close();
             if (width * height > MAX_IMAGE_PIXELS) throw new Error('L’image dépasse 8 millions de pixels.');
-            this.pendingImage = { bytes, mime: file.type, width, height };
+            this.pendingImage = { bytes, mime: file.type, width, height, url: `data:${file.type};base64,${toBase64(bytes)}` };
             this.tool = 'image';
             this.message = '';
         } catch (error) { this.fail(error); }
@@ -386,33 +400,49 @@ export default class PdfEditor extends NavigationMixin(LightningElement) {
     }
 
     handleStageClick(event) {
-        if (this.disabled || !this.viewport || event.target.dataset.elementId || this.tool === 'select') return;
+        if (this.disabled || this.rendering || !this.viewport || event.target.dataset.elementId || this.tool === 'select') return;
         const bounds = event.currentTarget.getBoundingClientRect();
-        const [x, y] = this.viewport.convertToPdfPoint(event.clientX - bounds.left, event.clientY - bounds.top);
-        this.addAt(x, y);
+        this.addAt(event.clientX - bounds.left, event.clientY - bounds.top);
     }
 
     handleAddCentered() {
-        if (this.disabled || !this.viewport || this.tool === 'select') return;
-        const [x, y] = this.viewport.convertToPdfPoint(this.viewport.width / 3, this.viewport.height / 2);
-        this.addAt(x, y);
+        if (this.disabled || this.rendering || !this.viewport || this.tool === 'select') return;
+        this.addAt(this.viewport.width / 3, this.viewport.height / 2);
     }
 
-    addAt(x, y) {
+    // Converts a screen offset into the matching PDF offset, whatever the page rotation.
+    pdfOffset(dx, dy) {
+        const zero = this.viewport.convertToPdfPoint(0, 0);
+        const point = this.viewport.convertToPdfPoint(dx, dy);
+        return [point[0] - zero[0], point[1] - zero[1]];
+    }
+
+    // Moves an element so that its top-left corner on screen lands at (left, top).
+    alignTopLeft(element, left, top) {
+        const box = screenBox(element, this.toScreen);
+        const [dx, dy] = this.pdfOffset(left - box.left, top - box.top);
+        return { x: element.x + dx, y: element.y + dy };
+    }
+
+    addAt(left, top) {
         try {
             const id = crypto.randomUUID();
+            // New additions are upright for the orientation the user currently sees.
+            const [x, y] = this.viewport.convertToPdfPoint(left, top);
+            const base = { id, x, y, rotation: this.pageRotation };
             let element;
             if (this.tool === 'text') {
                 const metrics = this.sourceHandle.measure('Votre texte', 16);
-                element = { id, type: 'text', x, y, text: 'Votre texte', fontSize: 16, color: '#182c37', ...metrics };
+                element = { ...base, type: 'text', text: 'Votre texte', fontSize: 16, color: '#182c37', ...metrics };
             } else if (this.tool === 'mask') {
-                element = { id, type: 'mask', x, y, width: 140, height: 32 };
+                element = { ...base, type: 'mask', width: 140, height: 32 };
             } else if (this.pendingImage) {
                 this.assets.set(id, this.pendingImage);
-                element = { id, type: 'image', x, y, assetId: id, width: 160, height: 160 * this.pendingImage.height / this.pendingImage.width };
+                element = { ...base, type: 'image', assetId: id, width: 160, height: 160 * this.pendingImage.height / this.pendingImage.width };
                 this.pendingImage = null;
             }
             if (!element) return;
+            Object.assign(element, this.alignTopLeft(element, left, top));
             this.change({ type: 'add', pageId: this.page.id, element });
             this.selectedId = id;
             this.tool = 'select';
@@ -453,29 +483,61 @@ export default class PdfEditor extends NavigationMixin(LightningElement) {
     }
 
     moveSelected(dx, dy) {
-        const zero = this.viewport.convertToPdfPoint(0, 0);
-        const offset = this.viewport.convertToPdfPoint(dx, dy);
+        const [offsetX, offsetY] = this.pdfOffset(dx, dy);
         this.change({ type: 'update', pageId: this.page.id, elementId: this.selectedId,
-            patch: { x: this.selected.x + offset[0] - zero[0], y: this.selected.y + offset[1] - zero[1] } });
+            patch: { x: this.selected.x + offsetX, y: this.selected.y + offsetY } });
     }
 
     handlePointerDown(event) {
         if (this.disabled || event.button !== 0 || this.tool !== 'select') return;
         this.selectedId = event.currentTarget.dataset.elementId;
         event.currentTarget.setPointerCapture(event.pointerId);
-        this.drag = { id: this.selectedId, startX: event.clientX, startY: event.clientY, originalX: this.selected.x, originalY: this.selected.y, x: this.selected.x, y: this.selected.y };
+        this.drag = { mode: 'move', id: this.selectedId, startX: event.clientX, startY: event.clientY, original: { ...this.selected }, patch: {} };
     }
+
+    handleResizeStart(event) {
+        event.stopPropagation();
+        if (this.disabled || event.button !== 0 || !this.selected) return;
+        event.currentTarget.setPointerCapture(event.pointerId);
+        const original = { ...this.selected };
+        this.drag = { mode: 'resize', id: original.id, startX: event.clientX, startY: event.clientY, original, box: screenBox(original, this.toScreen), patch: {} };
+    }
+
     handlePointerMove(event) {
         if (!this.drag) return;
-        const zero = this.viewport.convertToPdfPoint(0, 0);
-        const offset = this.viewport.convertToPdfPoint(event.clientX - this.drag.startX, event.clientY - this.drag.startY);
-        this.drag = { ...this.drag, x: this.drag.originalX + offset[0] - zero[0], y: this.drag.originalY + offset[1] - zero[1] };
+        const dx = event.clientX - this.drag.startX;
+        const dy = event.clientY - this.drag.startY;
+        const patch = this.drag.mode === 'resize' ? this.resizePatch(dx, dy) : this.movePatch(dx, dy);
+        this.drag = { ...this.drag, patch };
     }
+
+    movePatch(dx, dy) {
+        const [offsetX, offsetY] = this.pdfOffset(dx, dy);
+        return { x: this.drag.original.x + offsetX, y: this.drag.original.y + offsetY };
+    }
+
+    // Resizes from the bottom-right handle while the top-left corner stays in place on screen.
+    resizePatch(dx, dy) {
+        const { original, box } = this.drag;
+        let screenWidth = Math.max(MIN_RESIZE_PIXELS, box.width + dx);
+        let screenHeight = Math.max(MIN_RESIZE_PIXELS, box.height + dy);
+        if (original.type === 'image') {
+            const factor = Math.max(screenWidth / box.width, screenHeight / box.height);
+            screenWidth = box.width * factor;
+            screenHeight = box.height * factor;
+        }
+        const sideways = visualAngle(this.pageRotation, original.rotation) % 180 !== 0;
+        const clamp = (value) => Math.min(2000, Math.max(1, value / this.zoom));
+        const width = clamp(sideways ? screenHeight : screenWidth);
+        const height = clamp(sideways ? screenWidth : screenHeight);
+        return { width, height, ...this.alignTopLeft({ ...original, width, height }, box.left, box.top) };
+    }
+
     handlePointerUp() {
         if (!this.drag) return;
-        const drag = this.drag;
+        const { id, patch } = this.drag;
         this.drag = null;
-        if (drag.x !== drag.originalX || drag.y !== drag.originalY) this.change({ type: 'update', pageId: this.page.id, elementId: drag.id, patch: { x: drag.x, y: drag.y } });
+        if (Object.keys(patch).length) this.change({ type: 'update', pageId: this.page.id, elementId: id, patch });
     }
     handlePointerCancel() { this.drag = null; }
 

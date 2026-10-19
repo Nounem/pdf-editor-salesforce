@@ -86,14 +86,15 @@ La validation actuelle porte sur le prototype en sandbox ; la recette de l’int
 - Parcourir, tourner et retirer des pages.
 - Enregistrer une copie liée à l’enregistrement courant, avec réessai idempotent.
 
-L’aperçu est généré à partir du PDF exporté. Les bibliothèques sont embarquées en Static Resource : aucun service PDF externe ni CDN n’est utilisé.
+La page d’origine est affichée une seule fois et les ajouts sont dessinés en direct par-dessus : déplacer, redimensionner ou modifier un ajout ne reconstruit pas le PDF. Le PDF final est fabriqué au téléchargement ou à l’enregistrement ; les ajouts y sont orientés comme à l’écran, y compris sur une page pivotée. Les bibliothèques sont embarquées en Static Resource : aucun service PDF externe ni CDN n’est utilisé.
 
 ## Limites du prototype
 
 **1 000 000 octets** en entrée et en sortie, **20 pages**, **100 ajouts**. Images : 500 000 octets et 8 millions de pixels au maximum. Une image peut faire dépasser la limite de sortie.
 
 - Le masquage blanc ne supprime pas les informations sous-jacentes. Il ne permet pas de caviarder des données confidentielles.
-- Les PDF chiffrés, avec signature/champ de signature, formulaires interactifs, annotations ou liens interactifs sont refusés avant édition.
+- Les PDF chiffrés, avec signature/champ de signature ou formulaires interactifs sont refusés avant édition.
+- Les PDF contenant des liens ou des commentaires s’ouvrent, mais ces liens et commentaires ne sont pas repris dans la copie ; un message le signale à l’ouverture.
 - Ajout de texte latin en Helvetica, une ligne de 200 caractères au maximum. Pas d’édition du texte d’origine, d’OCR, de fusion ni de réorganisation des pages dans cette version.
 - Les ajouts restent éditables pendant la session. Après fermeture, ils sont intégrés au contenu du PDF ; le projet d’édition n’est pas conservé.
 - Le moteur PDF.js fonctionne dans le thread principal pour éviter les workers et imports dynamiques sous LWS. Cela reste à qualifier en interface Lightning dans l’org cible.
@@ -105,7 +106,7 @@ L’aperçu est généré à partir du PDF exporté. Les bibliothèques sont emb
 
 Les ressources compilées et les métadonnées sont déjà dans `force-app`. Le 13 octobre 2026, le projet a été déployé pour test dans la sandbox `optiTurpe`, avec ajout de l’onglet **Éditeur PDF** à **Capitole Énergie** et attribution du Permission Set à l’utilisateur de test. Les commandes ci-dessous permettent une installation dans une sandbox ; `--dry-run`, lorsqu’il est ajouté, valide seulement le déploiement.
 
-Le diagnostic a relevé `lockerServiceNext=false` dans cette sandbox : l’activation de LWS reste nécessaire pour y utiliser le moteur. Le déploiement du composant ne modifie pas ce paramètre. Les messages distinguent désormais une erreur de chargement du moteur d’une erreur de lecture des PDF, et proposent de réessayer.
+Le diagnostic avait relevé `lockerServiceNext=false` dans cette sandbox. Après accord de l’administrateur, **LWS a été activé dans `optiTurpe` le 13 octobre 2026**, par un déploiement de configuration distinct. Le bouton GitHub ne modifie pas ce paramètre dans les autres organisations. Recharger la page, ou ouvrir une nouvelle session, après l’activation. Les messages distinguent une erreur de chargement du moteur d’une erreur de lecture des PDF, et proposent de réessayer.
 
 La configuration propre à Capitole Énergie a été récupérée dans la sandbox pour y ajouter l’onglet en conservant ses réglages. Cette configuration reste locale et n’est pas incluse dans le dépôt générique : le bouton GitHub déploie l’App Page et son onglet ; l’ajout à la navigation d’une autre organisation suit les étapes en début de README.
 

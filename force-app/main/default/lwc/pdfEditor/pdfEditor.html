@@ -7,6 +7,7 @@
         <lightning-button lwc:if={filesFailed} label="Réessayer la recherche des PDF" onclick={handleRetryFiles} disabled={disabled}></lightning-button>
         <div lwc:if={success} class="notice success" role="status">{success}<lightning-button lwc:if={savedDocumentId} label="Voir la copie" variant="base" onclick={handleViewSaved}></lightning-button></div>
         <div lwc:if={busy} class="loading" role="status">Traitement en cours…</div>
+        <div lwc:if={notice} class="notice" role="status">{notice}</div>
         <div lwc:if={missingRecord} class="notice" role="status">Ouvrez un PDF depuis votre ordinateur pour le modifier et le télécharger. Pour enregistrer une copie dans Salesforce, choisissez un enregistrement.</div>
         <div lwc:if={contextPending} class="notice" role="status">Appliquez votre sélection d’enregistrement pour activer la sauvegarde dans Salesforce.</div>
         <div lwc:if={contextChanged} class="notice error" role="alert">L’enregistrement a changé. Revenez au précédent pour sauvegarder, ou ouvrez un nouveau document.</div>
@@ -51,7 +52,14 @@
                         <div class="page-stage" style={stageStyle} onclick={handleStageClick}>
                             <canvas aria-label="Aperçu du PDF modifié"></canvas>
                             <template for:each={overlays} for:item="element">
-                                <button key={element.id} class={element.className} style={element.style} data-element-id={element.id} aria-label={element.label} aria-pressed={element.pressed} title={element.label} onclick={handleSelect} onkeydown={handleElementKey} onpointerdown={handlePointerDown} onpointermove={handlePointerMove} onpointerup={handlePointerUp} onpointercancel={handlePointerCancel} disabled={disabled}></button>
+                                <button key={element.id} class={element.className} style={element.style} data-element-id={element.id} aria-label={element.label} aria-pressed={element.pressed} title={element.label} onclick={handleSelect} onkeydown={handleElementKey} onpointerdown={handlePointerDown} onpointermove={handlePointerMove} onpointerup={handlePointerUp} onpointercancel={handlePointerCancel} disabled={disabled}>
+                                    <span class="content" style={element.contentStyle}>
+                                        <span lwc:if={element.isText} class="text-content" style={element.textStyle}>{element.text}</span>
+                                        <img lwc:elseif={element.isImage} class="image-content" src={element.imageUrl} alt="" />
+                                        <span lwc:else class="mask-content"></span>
+                                    </span>
+                                    <span lwc:if={element.resizable} class="resize-handle" title="Redimensionner" onpointerdown={handleResizeStart}></span>
+                                </button>
                             </template>
                         </div>
                     </div>

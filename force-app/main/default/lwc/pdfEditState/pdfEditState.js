@@ -77,6 +77,31 @@ export function redo(history) {
     return { past: [...history.past, history.present], present: history.future[0], future: history.future.slice(1) };
 }
 
+// Corners in PDF space of an element drawn from (x, y), turned counter-clockwise by its rotation.
+export function elementCorners(element) {
+    const angle = ((element.rotation || 0) * Math.PI) / 180;
+    const [ux, uy] = [Math.cos(angle), Math.sin(angle)];
+    const [vx, vy] = [-uy, ux];
+    const { x, y, width, height } = element;
+    return [[x, y], [x + width * ux, y + width * uy], [x + height * vx, y + height * vy],
+        [x + width * ux + height * vx, y + width * uy + height * vy]];
+}
+
+// Screen rectangle covering an element, whatever the page and element rotations.
+export function screenBox(element, toScreen) {
+    const points = elementCorners(element).map(([x, y]) => toScreen(x, y));
+    const xs = points.map((item) => item[0]);
+    const ys = points.map((item) => item[1]);
+    const left = Math.min(...xs);
+    const top = Math.min(...ys);
+    return { left, top, width: Math.max(...xs) - left, height: Math.max(...ys) - top };
+}
+
+// Clockwise angle at which an element appears on screen.
+export function visualAngle(pageRotation, elementRotation) {
+    return (((pageRotation || 0) - (elementRotation || 0)) % 360 + 360) % 360;
+}
+
 export function toBase64(bytes) {
     let binary = '';
     for (let offset = 0; offset < bytes.length; offset += 8192) {

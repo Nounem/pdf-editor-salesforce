@@ -1,5 +1,5 @@
 const { test, expect } = require('@playwright/test');
-const { PDFDocument, StandardFonts, degrees } = require('pdf-lib');
+const { PDFDocument, PDFName, PDFString, StandardFonts, degrees } = require('pdf-lib');
 
 async function fixture(rotation = 0) {
     const document = await PDFDocument.create();
@@ -77,6 +77,32 @@ test('rotated PDF coordinates round-trip and unsupported inputs fail clearly', a
     expect(outcome.pdfPoint).toEqual([72, 120]);
     expect(outcome.invalid).toContain('signature PDF');
     expect(outcome.unicode).toContain('caractère');
+});
+
+test('PDFs with links open, and the copy drops the links but keeps rotated additions', async ({ page }) => {
+    const document = await PDFDocument.create();
+    const pdfPage = document.addPage([400, 500]);
+    const link = document.context.obj({ Type: 'Annot', Subtype: 'Link', Rect: [10, 10, 100, 30],
+        A: { S: 'URI', URI: PDFString.of('https://example.invalid') } });
+    pdfPage.node.set(PDFName.of('Annots'), document.context.obj([document.context.register(link)]));
+    const source = Array.from(await document.save());
+    await openEnginePage(page);
+    const result = await page.evaluate(async (bytes) => {
+        const engine = window.LovePdfEngine;
+        const handle = await engine.open(new Uint8Array(bytes));
+        const metrics = handle.measure('Bon pour accord', 14);
+        const state = { pages: [{ id: 'p0', sourceIndex: 0, rotation: 90, elements: [
+            { id: 't', type: 'text', x: 200, y: 100, rotation: 90, text: 'Bon pour accord', fontSize: 14, color: '#000000', ...metrics },
+            { id: 'm', type: 'mask', x: 300, y: 100, rotation: 90, width: 60, height: 20 }
+        ] }] };
+        const output = await engine.exportPdf(new Uint8Array(bytes), state, new Map());
+        await handle.destroy();
+        return { annotations: handle.annotations, output: Array.from(output) };
+    }, source);
+    expect(result.annotations).toBe(true);
+    const exported = await PDFDocument.load(new Uint8Array(result.output));
+    expect(exported.getPage(0).node.Annots()?.size() || 0).toBe(0);
+    expect(exported.getPage(0).getRotation().angle).toBe(90);
 });
 
 test('interactive PDFs are rejected before reconstruction', async ({ page }) => {

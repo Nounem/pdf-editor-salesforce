@@ -1,6 +1,19 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createState, createHistory, commit, undo, redo, applyChange, fromBase64, toBase64 } from '../force-app/main/default/lwc/pdfEditState/pdfEditState.js';
+import { createState, createHistory, commit, undo, redo, applyChange, fromBase64, toBase64, screenBox, visualAngle } from '../force-app/main/default/lwc/pdfEditState/pdfEditState.js';
+
+const round = (box) => Object.fromEntries(Object.entries(box).map(([key, value]) => [key, Math.round(value * 1000) / 1000]));
+
+test('screen box follows the element rotation on unrotated and rotated pages', () => {
+    const flip = (x, y) => [x, 500 - y];
+    assert.deepEqual(round(screenBox({ x: 10, y: 20, width: 100, height: 30 }, flip)), { left: 10, top: 450, width: 100, height: 30 });
+    // Created upright on a page shown at 90°: drawn turned 90° counter-clockwise in PDF space.
+    const element = { x: 100, y: 100, width: 80, height: 20, rotation: 90 };
+    assert.deepEqual(round(screenBox(element, flip)), { left: 80, top: 320, width: 20, height: 80 });
+    assert.equal(visualAngle(90, 90), 0);
+    assert.equal(visualAngle(0, 90), 270);
+    assert.equal(visualAngle(270, 0), 270);
+});
 
 test('undo and redo preserve source, page rotation and elements', () => {
     const state = createState(2);

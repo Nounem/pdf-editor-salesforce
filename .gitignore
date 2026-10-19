@@ -8,6 +8,7 @@ coverage/
 .sfdx/
 .local/
 deploy-artifacts/
+force-app/**/jsconfig.json
 .env
 .env.*
 !.env.example
