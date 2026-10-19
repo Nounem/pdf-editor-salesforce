@@ -1,28 +1,19 @@
 <template>
     <div class="slds-m-bottom_medium">
-        <lightning-card title="Rechercher dans Salesforce" icon-name="standard:record">
+        <lightning-card title="Enregistrement Salesforce" icon-name="standard:record">
+            <lightning-button lwc:if={activeRecordId} slot="actions" label="Ouvrir l’enregistrement" icon-name="utility:back" onclick={handleViewRecord}></lightning-button>
             <div class="slds-p-horizontal_medium slds-p-bottom_medium">
-                <p class="slds-m-bottom_small">Ouvrez directement un PDF depuis votre ordinateur ci-dessous, ou choisissez un objet et un enregistrement pour accéder à ses fichiers. Cet enregistrement recevra les copies sauvegardées dans Salesforce.</p>
+                <p class="slds-m-bottom_small">Facultatif : choisissez un enregistrement pour ouvrir ses PDF et y enregistrer vos modifications. Un PDF de votre ordinateur peut être modifié et téléchargé sans enregistrement.</p>
                 <p lwc:if={loadingObjects} role="status">Chargement des objets disponibles…</p>
                 <div class="context-controls">
-                    <lightning-input type="search" label="Filtrer les objets" placeholder="Compte, opportunité, offre, compteur…" value={objectFilter} onchange={handleObjectFilter} disabled={pickerDisabled}></lightning-input>
                     <lightning-combobox label="Type d’objet" value={selectedObject} options={objectOptions} onchange={handleObjectChange} disabled={pickerDisabled} placeholder="Choisir un objet"></lightning-combobox>
                     <template for:each={pickerObjects} for:item="object">
-                        <lightning-record-picker key={object.value} data-object={object.value} label={pickerLabel} object-api-name={object.value} value={selectedRecordId} onchange={handleRecordChange} onerror={handlePickerError} disabled={pickerDisabled} required></lightning-record-picker>
-                    </template>
-                </div>
-                <div class="context-actions slds-m-top_small">
-                    <template lwc:if={choosing}>
-                        <lightning-button label="Utiliser cet enregistrement" variant="brand" onclick={handleOpen} disabled={openDisabled}></lightning-button>
-                        <lightning-button lwc:if={activeRecordId} label="Annuler le changement" onclick={handleCancel} disabled={switching}></lightning-button>
-                    </template>
-                    <template lwc:else>
-                        <lightning-button label="Changer d’enregistrement" onclick={handleChangeRecord}></lightning-button>
+                        <lightning-record-picker key={object.value} data-object={object.value} label={pickerLabel} object-api-name={object.value} value={selectedRecordId} onchange={handleRecordChange} onerror={handlePickerError} disabled={pickerDisabled}></lightning-record-picker>
                     </template>
                 </div>
                 <p lwc:if={message} class="slds-m-top_small slds-text-color_error" role="alert">{message}</p>
             </div>
         </lightning-card>
     </div>
-    <c-pdf-editor record-id={activeRecordId} context-pending={contextPending}></c-pdf-editor>
+    <c-pdf-editor record-id={activeRecordId}></c-pdf-editor>
 </template>

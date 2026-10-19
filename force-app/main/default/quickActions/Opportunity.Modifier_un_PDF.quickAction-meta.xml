@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<QuickAction xmlns="http://soap.sforce.com/2006/04/metadata">
+    <description>Ouvre l’éditeur PDF sur cette opportunité.</description>
+    <label>Modifier un PDF</label>
+    <lightningWebComponent>pdfEditorAction</lightningWebComponent>
+    <optionsCreateFeedItem>false</optionsCreateFeedItem>
+    <type>LightningWebComponent</type>
+</QuickAction>

@@ -5,11 +5,10 @@
         <div lwc:if={message} class="notice error" role="alert">{message}</div>
         <lightning-button lwc:if={initializationFailed} label="Réessayer le chargement" onclick={handleRetryEngine} disabled={busy}></lightning-button>
         <lightning-button lwc:if={filesFailed} label="Réessayer la recherche des PDF" onclick={handleRetryFiles} disabled={disabled}></lightning-button>
-        <div lwc:if={success} class="notice success" role="status">{success}<lightning-button lwc:if={savedDocumentId} label="Voir la copie" variant="base" onclick={handleViewSaved}></lightning-button></div>
+        <div lwc:if={success} class="notice success" role="status">{success}<lightning-button lwc:if={savedDocumentId} label="Voir le fichier" variant="base" onclick={handleViewSaved}></lightning-button></div>
         <div lwc:if={busy} class="loading" role="status">Traitement en cours…</div>
         <div lwc:if={notice} class="notice" role="status">{notice}</div>
         <div lwc:if={missingRecord} class="notice" role="status">Ouvrez un PDF depuis votre ordinateur pour le modifier et le télécharger. Pour enregistrer une copie dans Salesforce, choisissez un enregistrement.</div>
-        <div lwc:if={contextPending} class="notice" role="status">Appliquez votre sélection d’enregistrement pour activer la sauvegarde dans Salesforce.</div>
         <div lwc:if={contextChanged} class="notice error" role="alert">L’enregistrement a changé. Revenez au précédent pour sauvegarder, ou ouvrez un nouveau document.</div>
         <div class="source-bar">
             <template lwc:if={recordId}>
@@ -21,8 +20,12 @@
         </div>
         <template lwc:if={hasDocument}>
             <div class="document-bar">
-                <div class="document-name"><lightning-input label="Nom de la copie" value={title} maxlength="100" onchange={handleTitle} disabled={disabled}></lightning-input></div>
-                <div class="save-group"><span class="document-status">{status}</span><lightning-button label="Télécharger le PDF" icon-name="utility:download" onclick={handleDownload} disabled={disabled}></lightning-button><lightning-button label="Enregistrer une copie" icon-name="utility:save" variant="brand" onclick={handleSave} disabled={saveDisabled}></lightning-button></div>
+                <div class="document-name">
+                    <lightning-radio-group lwc:if={canSaveVersion} class="save-mode" type="button" label="Enregistrer comme" options={saveModeOptions} value={saveMode} onchange={handleSaveMode} disabled={disabled}></lightning-radio-group>
+                    <lightning-input lwc:if={saveAsCopy} label="Nom du nouveau fichier" value={title} maxlength="100" onchange={handleTitle} disabled={disabled}></lightning-input>
+                    <p lwc:else class="version-hint">{versionHint}</p>
+                </div>
+                <div class="save-group"><span class="document-status">{status}</span><lightning-button label="Télécharger le PDF" icon-name="utility:download" onclick={handleDownload} disabled={disabled}></lightning-button><lightning-button label="Enregistrer" icon-name="utility:save" variant="brand" onclick={handleSave} disabled={saveDisabled}></lightning-button></div>
                 <a class="download-link" hidden>Copie PDF</a>
             </div>
             <div class="toolbar" role="group" aria-label="Outils d’édition">
@@ -42,7 +45,7 @@
                     <lightning-combobox label="Zoom" value={zoomValue} options={zoomOptions} onchange={handleZoom} disabled={disabled}></lightning-combobox>
                     <lightning-button label="Tourner de 90°" onclick={handleRotate} disabled={disabled}></lightning-button>
                     <lightning-button label="Retirer la page" variant="destructive-text" onclick={handleDeletePage} disabled={deletePageDisabled}></lightning-button>
-                    <p class="muted">L’original est conservé. Les modifications sont enregistrées dans un nouveau fichier.</p>
+                    <p class="muted">L’original n’est jamais perdu : enregistrez une nouvelle version (les précédentes restent consultables) ou un nouveau fichier.</p>
                 </aside>
                 <div class="canvas-panel">
                     <p class="placement-hint" aria-live="polite">{placementHint}</p>
@@ -91,7 +94,7 @@
                 <lightning-icon icon-name="doctype:pdf" size="large" alternative-text="Document PDF"></lightning-icon>
                 <h2>Ouvrir un document PDF</h2>
                 <p>Sélectionnez un fichier de cet enregistrement ou importez un PDF depuis votre ordinateur.</p>
-                <p>Ajoutez du texte et des images, puis enregistrez une copie dans Salesforce Files.</p>
+                <p>Ajoutez du texte et des images, puis enregistrez le résultat dans Salesforce Files.</p>
                 <div class="capabilities"><lightning-badge label="Texte et images"></lightning-badge><lightning-badge label="Rotation des pages"></lightning-badge><lightning-badge label="Original conservé"></lightning-badge></div>
             </div>
         </template>

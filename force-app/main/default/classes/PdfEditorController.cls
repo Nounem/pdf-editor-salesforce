@@ -95,6 +95,35 @@ public with sharing class PdfEditorController {
         if (String.isBlank(title) || title.length() > 100 || title.contains('/') || title.contains('\\')) {
             throw problem('Saisissez un nom de fichier de 1 à 100 caractères, sans séparateur de dossier.');
         }
+        Blob data = requirePdf(payload, requestId);
+        String cleanTitle = title.trim().replaceAll('(?i)\\.pdf$', '');
+        if (String.isBlank(cleanTitle)) throw problem('Le nom de fichier est vide.');
+        ContentVersion output = new ContentVersion(
+            Title = cleanTitle, PathOnClient = cleanTitle + '.pdf', VersionData = data,
+            ReasonForChange = 'Copie éditée avec LovePdfSales'
+        );
+        return persist(recordId, sourceVersionId, requestId, new List<String>{ 'copy', cleanTitle }, output, true);
+    }
+
+    // Adds the edited PDF as the latest version of its source file: history stays in Salesforce Files.
+    @AuraEnabled
+    public static SaveResult saveNewVersion(Id recordId, Id sourceVersionId, String payload, String requestId) {
+        requireRecord(recordId);
+        ContentVersion source = requireLinkedVersion(recordId, sourceVersionId);
+        Blob data = requirePdf(payload, requestId);
+        String key = UserInfo.getUserId() + ':' + requestId;
+        // A retry after a lost response must not be refused because its own version is now the latest.
+        if (!source.IsLatest && [SELECT count() FROM PDF_Edit_Operation__c WHERE RequestKey__c = :key WITH SYSTEM_MODE] == 0) {
+            throw problem('Ce fichier a reçu une nouvelle version depuis son ouverture. Rouvrez-le pour repartir de la dernière version.');
+        }
+        ContentVersion output = new ContentVersion(
+            ContentDocumentId = source.ContentDocumentId, Title = source.Title, PathOnClient = source.Title + '.pdf',
+            VersionData = data, ReasonForChange = 'Modifié avec LovePdfSales'
+        );
+        return persist(recordId, sourceVersionId, requestId, new List<String>{ 'version' }, output, false);
+    }
+
+    private static Blob requirePdf(String payload, String requestId) {
         if (String.isBlank(requestId) || !Pattern.matches('[a-zA-Z0-9-]{16,64}', requestId)) {
             throw problem('Identifiant de sauvegarde invalide.');
         }
@@ -105,13 +134,15 @@ public with sharing class PdfEditorController {
         try { data = EncodingUtil.base64Decode(payload); }
         catch (Exception error) { throw problem('Le contenu PDF reçu est invalide.'); }
         if (data.size() > MAX_BYTES) throw problem('Le résultat dépasse la limite de 1 Mo.');
-        String cleanTitle = title.trim().replaceAll('(?i)\\.pdf$', '');
-        if (String.isBlank(cleanTitle)) throw problem('Le nom de fichier est vide.');
+        return data;
+    }
+
+    private static SaveResult persist(Id recordId, Id sourceVersionId, String requestId, List<String> details, ContentVersion output, Boolean linkToRecord) {
         String key = UserInfo.getUserId() + ':' + requestId;
-        String digest = EncodingUtil.convertToHex(Crypto.generateDigest('SHA-256', data));
-        String fingerprint = EncodingUtil.convertToHex(Crypto.generateDigest('SHA-256', Blob.valueOf(
-            JSON.serialize(new List<String>{ String.valueOf(recordId), String.valueOf(sourceVersionId), cleanTitle, digest })
-        )));
+        String digest = EncodingUtil.convertToHex(Crypto.generateDigest('SHA-256', output.VersionData));
+        List<String> parts = new List<String>{ String.valueOf(recordId), String.valueOf(sourceVersionId), digest };
+        parts.addAll(details);
+        String fingerprint = EncodingUtil.convertToHex(Crypto.generateDigest('SHA-256', Blob.valueOf(JSON.serialize(parts))));
         SaveResult prior = previousResult(key, fingerprint);
         if (prior != null) return prior;
 
@@ -125,14 +156,12 @@ public with sharing class PdfEditorController {
             // Internal idempotence ledger only. Users cannot edit its keys or results.
             // File access and all file writes remain strictly in USER_MODE.
             Database.insert(operation, AccessLevel.SYSTEM_MODE);
-            ContentVersion output = new ContentVersion(
-                Title = cleanTitle, PathOnClient = cleanTitle + '.pdf', VersionData = data,
-                ReasonForChange = 'Copie éditée avec LovePdfSales'
-            );
             Database.insert(output, AccessLevel.USER_MODE);
             ContentVersion saved = [SELECT Id, ContentDocumentId FROM ContentVersion WHERE Id = :output.Id WITH USER_MODE];
-            Database.insert(new ContentDocumentLink(ContentDocumentId = saved.ContentDocumentId,
-                LinkedEntityId = recordId, ShareType = 'V', Visibility = 'InternalUsers'), AccessLevel.USER_MODE);
+            if (linkToRecord) {
+                Database.insert(new ContentDocumentLink(ContentDocumentId = saved.ContentDocumentId,
+                    LinkedEntityId = recordId, ShareType = 'V', Visibility = 'InternalUsers'), AccessLevel.USER_MODE);
+            }
             operation.ResultVersionId__c = String.valueOf(saved.Id);
             Database.update(operation, AccessLevel.SYSTEM_MODE);
             SaveResult result = new SaveResult();
@@ -146,11 +175,14 @@ public with sharing class PdfEditorController {
                 if (duplicate != null) return duplicate;
             }
             // Keep the real cause (trigger, validation rule, access) visible to users and admins.
-            System.debug(LoggingLevel.ERROR, 'PdfEditorController.saveCopy ' + error.getDmlType(0) + ': ' + error.getDmlMessage(0));
+            System.debug(LoggingLevel.ERROR, 'PdfEditorController.persist ' + error.getDmlType(0) + ': ' + error.getDmlMessage(0));
+            if (!linkToRecord && error.getDmlType(0) == StatusCode.INSUFFICIENT_ACCESS_OR_READONLY) {
+                throw problem('Vous ne pouvez pas modifier ce fichier. Enregistrez plutôt un nouveau fichier. Vos modifications sont conservées.');
+            }
             throw problem('Enregistrement impossible : ' + error.getDmlMessage(0) + ' Vos modifications sont conservées.');
         } catch (Exception error) {
             Database.rollback(point);
-            System.debug(LoggingLevel.ERROR, 'PdfEditorController.saveCopy ' + error.getTypeName() + ': ' + error.getMessage());
+            System.debug(LoggingLevel.ERROR, 'PdfEditorController.persist ' + error.getTypeName() + ': ' + error.getMessage());
             throw problem('La copie n’a pas été enregistrée (' + error.getMessage() + '). Vous pouvez réessayer sans perdre vos modifications.');
         }
     }
@@ -176,7 +208,7 @@ public with sharing class PdfEditorController {
     private static ContentVersion requireLinkedVersion(Id recordId, Id versionId) {
         if (versionId == null || versionId.getSObjectType() != ContentVersion.SObjectType) throw problem('Version PDF invalide.');
         List<ContentVersion> versions = [
-            SELECT Id, ContentDocumentId, Title, ContentSize, FileType FROM ContentVersion
+            SELECT Id, ContentDocumentId, Title, ContentSize, FileType, IsLatest FROM ContentVersion
             WHERE Id = :versionId WITH USER_MODE LIMIT 1
         ];
         if (versions.isEmpty() || versions[0].FileType != 'PDF') throw problem('PDF inaccessible.');

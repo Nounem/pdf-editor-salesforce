@@ -55,6 +55,32 @@ private class PdfEditorControllerTest {
     }
 
     @IsTest
+    static void savesANewVersionOfTheSourceFileOnlyOnceOnRetry() {
+        Account account = [SELECT Id FROM Account LIMIT 1];
+        ContentVersion source = [SELECT Id, ContentDocumentId FROM ContentVersion LIMIT 1];
+        Test.startTest();
+        PdfEditorController.SaveResult first = PdfEditorController.saveNewVersion(account.Id, source.Id, pdf(), 'request-00000000010');
+        PdfEditorController.SaveResult retry = PdfEditorController.saveNewVersion(account.Id, source.Id, pdf(), 'request-00000000010');
+        Test.stopTest();
+        System.assertEquals(first.versionId, retry.versionId);
+        System.assertEquals(source.ContentDocumentId, first.documentId, 'The edit is a version of the same file');
+        System.assertEquals(2, [SELECT count() FROM ContentVersion WHERE ContentDocumentId = :source.ContentDocumentId]);
+        System.assert([SELECT IsLatest FROM ContentVersion WHERE Id = :first.versionId].IsLatest);
+        System.assertEquals(1, [SELECT count() FROM ContentDocumentLink WHERE ContentDocumentId = :source.ContentDocumentId AND LinkedEntityId = :account.Id]);
+    }
+
+    @IsTest
+    static void refusesANewVersionFromAnOutdatedSource() {
+        Account account = [SELECT Id FROM Account LIMIT 1];
+        ContentVersion source = [SELECT Id FROM ContentVersion LIMIT 1];
+        PdfEditorController.saveNewVersion(account.Id, source.Id, pdf(), 'request-00000000011');
+        try {
+            PdfEditorController.saveNewVersion(account.Id, source.Id, pdf(), 'request-00000000012');
+            System.assert(false, 'An outdated source must not overwrite a newer version');
+        } catch (AuraHandledException error) { System.assert(error.getMessage().contains('nouvelle version')); }
+    }
+
+    @IsTest
     static void rejectsUnlinkedSourceAndBadPayload() {
         Account other = new Account(Name = 'Autre');
         insert other;

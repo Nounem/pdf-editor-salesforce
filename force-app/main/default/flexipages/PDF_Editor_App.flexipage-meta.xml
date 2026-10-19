@@ -4,7 +4,7 @@
     <flexiPageRegions>
         <itemInstances>
             <componentInstance>
-                <componentInstanceProperties><name>objectApiName</name><value>Account</value></componentInstanceProperties>
+                <componentInstanceProperties><name>objectApiName</name><value>Opportunity</value></componentInstanceProperties>
                 <componentInstanceProperties><name>pickerLabel</name><value>Enregistrement</value></componentInstanceProperties>
                 <componentName>c:pdfEditorApp</componentName>
                 <identifier>c_pdfEditorApp</identifier>

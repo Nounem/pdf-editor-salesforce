@@ -6,6 +6,7 @@ import engineResource from '@salesforce/resourceUrl/lovePdfEngine';
 import listRecordPdfs from '@salesforce/apex/PdfEditorController.listRecordPdfs';
 import loadSmallPdf from '@salesforce/apex/PdfEditorController.loadSmallPdf';
 import saveCopy from '@salesforce/apex/PdfEditorController.saveCopy';
+import saveNewVersion from '@salesforce/apex/PdfEditorController.saveNewVersion';
 import { MAX_BYTES, MAX_IMAGE_BYTES, MAX_IMAGE_PIXELS, createState, createHistory, commit, undo, redo, fromBase64, toBase64, boundedNumber, screenBox, visualAngle } from 'c/pdfEditState';
 
 const BUSY_MESSAGE = 'Attendez la fin du traitement avant de changer d’enregistrement.';
@@ -13,7 +14,6 @@ const MIN_RESIZE_PIXELS = 8;
 
 export default class PdfEditor extends NavigationMixin(LightningElement) {
     @api recordId;
-    @api contextPending = false;
     initialized = false;
     ready = false;
     initializationFailed = false;
@@ -32,6 +32,8 @@ export default class PdfEditor extends NavigationMixin(LightningElement) {
     selectedId;
     title = '';
     sourceVersionId = null;
+    sourceTitle = '';
+    saveMode = 'copy';
     sourceBytes;
     sourceHandle;
     viewport;
@@ -121,7 +123,7 @@ export default class PdfEditor extends NavigationMixin(LightningElement) {
     get disabled() { return this.busy || !this.ready; }
     get openDisabled() { return this.disabled || !this.selectedFile; }
     get saveDisabled() {
-        return this.disabled || !this.history || !this.recordId || this.contextPending || this.contextChanged
+        return this.disabled || !this.history || !this.recordId || this.contextChanged
             || (!this.dirty && Boolean(this.savedDocumentId));
     }
     get contextChanged() { return this.hasDocument && this.documentRecordId !== this.recordId; }
@@ -139,9 +141,17 @@ export default class PdfEditor extends NavigationMixin(LightningElement) {
     get zoomLabel() { return `${Math.round(this.zoom * 100)} %`; }
     get stageStyle() { return this.viewport ? `width:${this.viewport.width}px;height:${this.viewport.height}px;` : ''; }
     get dirty() { return Boolean(this.history) && (JSON.stringify(this.history.present) !== this.savedSnapshot || this.title !== this.savedTitle); }
+    // A Salesforce source is updated in place by default; its version history keeps the original.
+    get canSaveVersion() { return Boolean(this.sourceVersionId); }
+    get saveAsVersion() { return this.canSaveVersion && this.saveMode === 'version'; }
+    get saveAsCopy() { return !this.saveAsVersion; }
+    get saveModeOptions() {
+        return [{ label: 'Nouvelle version du fichier', value: 'version' }, { label: 'Nouveau fichier', value: 'copy' }];
+    }
+    get versionHint() { return `« ${this.sourceTitle} » recevra une nouvelle version. Les versions précédentes restent disponibles dans Salesforce Files.`; }
     get status() {
         if (this.dirty) return 'Modifications non enregistrées';
-        return this.savedDocumentId ? 'Copie enregistrée' : 'Aucune modification';
+        return this.savedDocumentId ? 'Enregistré' : 'Aucune modification';
     }
     get selectVariant() { return this.tool === 'select' ? 'brand' : 'neutral'; }
     get textVariant() { return this.tool === 'text' ? 'brand' : 'neutral'; }
@@ -293,6 +303,8 @@ export default class PdfEditor extends NavigationMixin(LightningElement) {
         this.sourceHandle = handle;
         this.sourceBytes = bytes;
         this.sourceVersionId = sourceVersionId;
+        this.sourceTitle = name;
+        this.saveMode = sourceVersionId ? 'version' : 'copy';
         this.documentRecordId = recordId;
         this.title = `${name.slice(0, 85)} — copie`;
         this.history = createHistory(createState(handle.pageCount));
@@ -355,6 +367,7 @@ export default class PdfEditor extends NavigationMixin(LightningElement) {
     }
 
     handleTool(event) { this.tool = event.currentTarget.dataset.tool; this.pendingImage = null; }
+    handleSaveMode(event) { this.saveMode = event.detail.value; this.saveRequestId = null; this.savedDocumentId = null; this.success = ''; }
     handleTitle(event) { this.title = event.target.value; this.saveRequestId = null; this.success = ''; }
     handlePrevious() { if (!this.previousDisabled) { this.pageIndex -= 1; this.selectedId = null; this.scheduleRender(); } }
     handleNext() { if (!this.nextDisabled) { this.pageIndex += 1; this.selectedId = null; this.scheduleRender(); } }
@@ -546,15 +559,20 @@ export default class PdfEditor extends NavigationMixin(LightningElement) {
         this.busy = true;
         this.message = '';
         try {
-            if (!this.title.trim() || this.title.length > 100) throw new Error('Saisissez un titre de 1 à 100 caractères.');
+            const asVersion = this.saveAsVersion;
+            if (!asVersion && (!this.title.trim() || this.title.length > 100)) throw new Error('Saisissez un nom de 1 à 100 caractères.');
             const bytes = await this.engine.exportPdf(this.sourceBytes, this.history.present, this.assets);
             this.saveRequestId = this.saveRequestId || crypto.randomUUID();
-            const result = await saveCopy({ recordId: this.recordId, sourceVersionId: this.sourceVersionId,
-                title: this.title, payload: toBase64(bytes), requestId: this.saveRequestId });
+            const request = { recordId: this.recordId, sourceVersionId: this.sourceVersionId, payload: toBase64(bytes), requestId: this.saveRequestId };
+            const result = asVersion ? await saveNewVersion(request) : await saveCopy({ ...request, title: this.title });
             this.savedSnapshot = JSON.stringify(this.history.present);
             this.savedTitle = this.title;
             this.savedDocumentId = result.documentId;
-            this.success = 'Votre copie a été enregistrée dans les fichiers de cet enregistrement.';
+            // Further saves build on the version just created.
+            if (asVersion) this.sourceVersionId = result.versionId;
+            this.success = asVersion
+                ? 'Nouvelle version enregistrée. Les versions précédentes restent disponibles dans le fichier.'
+                : 'Nouveau fichier enregistré sur cet enregistrement.';
             await this.refreshFiles();
         } catch (error) { this.fail(error); }
         finally { this.busy = false; }

@@ -28,12 +28,16 @@ export const mocks = {
     'lightning/combobox.css': sharedCss + ':host{display:block;width:100%}',
     'lightning/confirm.js': `export default {open:async()=>true};`,
     'lightning/platformResourceLoader.js': `export async function loadScript(){if(!window.LovePdfEngine)throw new Error('Missing PDF engine');}`,
-    'lightning/navigation.js': `export const NavigationMixin=(Base)=>class extends Base{[NavigationMixin.Navigate](){window.demoPreviewOpened=true;}};NavigationMixin.Navigate=Symbol('navigate');`,
+    'lightning/navigation.js': `export const NavigationMixin=(Base)=>class extends Base{[NavigationMixin.Navigate](){window.demoPreviewOpened=true;}};NavigationMixin.Navigate=Symbol('navigate');export class CurrentPageReference{constructor(callback){this.callback=callback;}connect(){}disconnect(){}update(){}}`,
+    'lightning/radioGroup.js': `import {LightningElement,api} from 'lwc';export default class RadioGroup extends LightningElement{@api label;@api options=[];@api value;@api type;@api disabled=false;get choices(){return this.options.map(option=>({...option,checked:option.value===this.value}));}change(event){this.value=event.target.value;this.dispatchEvent(new CustomEvent('change',{detail:{value:this.value}}));}}`,
+    'lightning/radioGroup.html': `<template><fieldset><legend>{label}</legend><div class="choices"><template for:each={choices} for:item="option"><label key={option.value}><input type="radio" name="choice" value={option.value} checked={option.checked} disabled={disabled} onchange={change} /><span>{option.label}</span></label></template></div></fieldset></template>`,
+    'lightning/radioGroup.css': sharedCss + 'fieldset{border:0;margin:0;padding:0}legend{font-size:12px;margin:0 0 4px;color:var(--slds-g-color-on-surface-1,#5c5c5c)}.choices{display:inline-flex}label{display:inline-flex;margin:0;font-size:13px;color:inherit}input{position:absolute;opacity:0;width:1px}span{display:inline-block;padding:6px 14px;border:1px solid #747474;margin-left:-1px;background:white;color:#0250d9;font-weight:600;cursor:pointer}label:first-child span{border-radius:4px 0 0 4px}label:last-child span{border-radius:0 4px 4px 0}input:checked+span{background:#066afe;border-color:#066afe;color:white}',
     'apex/listRecordPdfs.js': `export default async()=>[{title:'Devis Atelier Horizon',size:window.demoPdf.length,versionId:'demo-version'}];`,
     'apex/listRecordObjects.js': `export default async()=>[{label:'Compte',value:'Account'},{label:'Contact',value:'Contact'},{label:'Opportunité',value:'Opportunity'},{label:'Offre',value:'Quote'},{label:'Compteur',value:'Compteur__c'}];`,
     'apex/loadSmallPdf.js': `export default async()=>({title:'Devis Atelier Horizon',versionId:'demo-version',base64:window.demoPdfBase64});`,
     'apex/saveCopy.js': `export default async(request)=>{window.demoSavedRequest=request;return{documentId:'demo-copy',versionId:'demo-copy-version'};};`,
+    'apex/saveNewVersion.js': `export default async(request)=>{window.demoVersionRequest=request;return{documentId:'demo-document',versionId:'demo-version-2'};};`,
     'resource.js': `export default '/engine.js';`
 };
 
-export const componentNames = new Set(['button', 'buttonIcon', 'input', 'combobox', 'card', 'badge', 'icon', 'recordPicker']);
+export const componentNames = new Set(['button', 'buttonIcon', 'input', 'combobox', 'card', 'badge', 'icon', 'recordPicker', 'radioGroup']);

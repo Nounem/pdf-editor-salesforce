@@ -20,6 +20,8 @@ p { margin: 0; }
 .source-picker { flex: 1; min-width: 15rem; max-width: 30rem; }
 .document-bar { justify-content: space-between; }
 .document-name { flex: 1; min-width: 15rem; max-width: 30rem; }
+.save-mode { display: block; margin-bottom: var(--slds-g-spacing-2, 0.5rem); }
+.version-hint { color: var(--pdf-muted); }
 .save-group { display: flex; align-items: center; flex-wrap: wrap; gap: var(--slds-g-spacing-3, 0.75rem); }
 .document-status, .muted, .session-note { color: var(--pdf-muted); }
 .toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: var(--slds-g-spacing-2, 0.5rem); padding: var(--slds-g-spacing-3, 0.75rem) var(--slds-g-spacing-4, 1rem); border-block: 1px solid var(--pdf-border); }

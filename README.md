@@ -1,6 +1,6 @@
 # PDF Editor
 
-Prototype d’éditeur PDF en Lightning Web Component. Il permet de compléter un PDF depuis une page d’enregistrement Salesforce ou une **page d’application dédiée**, puis d’enregistrer **une copie** dans Salesforce Files.
+Prototype d’éditeur PDF en Lightning Web Component. Il permet de compléter un PDF depuis une opportunité (bouton **Modifier un PDF**), une page d’enregistrement ou une **page d’application dédiée**, puis de l’enregistrer dans Salesforce Files : **nouvelle version du fichier** par défaut, ou nouveau fichier.
 
 **Prérequis : Lightning Web Security (LWS) activé.** Le moteur n’est pas compatible avec l’ancien Lightning Locker. Vérifier **Configuration → Paramètres de session → Utiliser Lightning Web Security** avant la recette. Ce réglage concerne toute l’organisation ; le bouton de déploiement ne le change pas. [Documentation Salesforce](https://developer.salesforce.com/docs/platform/lightning-components-security/guide/lws-enable.html).
 
@@ -11,13 +11,23 @@ Le projet fournit la page d’application **Éditeur PDF** (`PDF_Editor_App`) et
 1. Déployer le projet, puis attribuer le Permission Set **LovePdfSales — Éditeur PDF** (`PDF_Editor_User`) aux utilisateurs concernés. Il donne accès au contrôleur Apex et rend l’onglet visible ; les droits métier sur les enregistrements et fichiers restent nécessaires.
 2. Dans **Configuration → Gestionnaire d’applications**, trouver **Capitole Énergie**, puis **Modifier**.
 3. Ouvrir **Éléments de navigation**, ajouter **Éditeur PDF** aux éléments sélectionnés, choisir sa position et enregistrer.
-4. Recharger Capitole Énergie et ouvrir l’onglet **Éditeur PDF**. Ouvrir directement un PDF avec **Depuis mon ordinateur**, ou choisir un **Type d’objet**, rechercher un **Enregistrement** et cliquer sur **Utiliser cet enregistrement** pour accéder à ses PDF.
+4. Recharger Capitole Énergie et ouvrir l’onglet **Éditeur PDF**. Ouvrir directement un PDF avec **Depuis mon ordinateur**, ou choisir un **Type d’objet** (Opportunité par défaut) puis un **Enregistrement** : ses PDF s’affichent aussitôt.
 
-La recherche permet de choisir l’objet directement dans la page : **compte, contact, opportunité, offre/devis, compteur et autres objets personnalisés éligibles**. **Filtrer les objets** réduit la liste. Les libellés proviennent de Salesforce ; les choix tiennent compte des droits de lecture de l’utilisateur. Les objets personnalisés doivent disposer d’un champ `Name` lisible, et le [sélecteur d’enregistrements Lightning](https://developer.salesforce.com/docs/platform/lightning-component-reference/guide/lightning-record-picker) doit prendre en charge l’objet. Les objets de configuration et le journal interne sont exclus. Un objet non pris en charge affiche un message, sans bloquer l’ouverture locale.
+### Ajouter le bouton « Modifier un PDF » aux opportunités
 
-Le choix d’un enregistrement est **facultatif pour modifier et télécharger un PDF local**. Il est nécessaire pour enregistrer une copie dans Salesforce. Vous pouvez choisir cette destination après avoir commencé l’édition : les modifications du PDF local sont conservées.
+Le déploiement crée l’action **Modifier un PDF** (`Opportunity.Modifier_un_PDF`), sans l’ajouter aux présentations de page de l’organisation. Pour l’afficher :
 
-**Changer d’enregistrement** permet une nouvelle recherche. La sauvegarde Salesforce reste suspendue jusqu’à l’application de la sélection ou son annulation. Si le PDF provient de Salesforce, changer de destination ferme ce document après confirmation des modifications non enregistrées ; il n’est pas rattaché silencieusement à un autre enregistrement. Le changement est bloqué pendant un traitement.
+1. **Configuration → Gestionnaire d’objets → Opportunité → Présentations de page**, ouvrir la présentation utilisée.
+2. Dans la palette, choisir **Actions mobiles et Lightning**, puis glisser **Modifier un PDF** dans la section **Actions Salesforce Mobile et Lightning Experience**. Enregistrer.
+3. Si la page Lightning de l’opportunité utilise les actions dynamiques, ajouter plutôt l’action dans **Lightning App Builder**, sur le panneau de mise en évidence.
+
+Le bouton ouvre l’onglet **Éditeur PDF** en pleine largeur, déjà positionné sur l’opportunité, avec la liste de ses PDF. **Ouvrir l’enregistrement** ramène à l’opportunité.
+
+La recherche permet de choisir l’objet directement dans la page : **opportunité (présélectionnée), compte, contact, offre/devis, compteur et autres objets personnalisés éligibles**. Les libellés proviennent de Salesforce ; les choix tiennent compte des droits de lecture de l’utilisateur. Les objets personnalisés doivent disposer d’un champ `Name` lisible, et le [sélecteur d’enregistrements Lightning](https://developer.salesforce.com/docs/platform/lightning-component-reference/guide/lightning-record-picker) doit prendre en charge l’objet. Les objets de configuration et le journal interne sont exclus. Un objet non pris en charge affiche un message, sans bloquer l’ouverture locale.
+
+Le choix d’un enregistrement est **facultatif pour modifier et télécharger un PDF local**. Il est nécessaire pour enregistrer dans Salesforce. Vous pouvez le choisir après avoir commencé l’édition : les modifications du PDF local sont conservées.
+
+Choisir un autre enregistrement l’applique immédiatement. Si le PDF ouvert provient de Salesforce, il est fermé après confirmation des modifications non enregistrées ; il n’est jamais rattaché silencieusement à un autre enregistrement. En cas de refus, l’enregistrement précédent est conservé. Le changement est bloqué seulement pendant une ouverture, un téléchargement ou un enregistrement.
 
 ## Charte Salesforce et SLDS 2
 
@@ -33,7 +43,7 @@ Les captures suivantes montrent le **composant LWC réel et son moteur PDF dans 
 
 ### 1. Ouvrir un PDF
 
-Cliquer sur **Depuis mon ordinateur** pour sélectionner un PDF, sans choisir d’enregistrement au préalable. Pour un PDF déjà présent dans Salesforce, choisir son objet et son enregistrement, appliquer la sélection, puis choisir le fichier dans la liste et cliquer sur **Ouvrir**.
+Cliquer sur **Depuis mon ordinateur** pour sélectionner un PDF, sans choisir d’enregistrement au préalable. Pour un PDF déjà présent dans Salesforce, utiliser le bouton **Modifier un PDF** de l’opportunité, ou choisir l’objet et l’enregistrement dans l’onglet, puis choisir le fichier dans la liste et cliquer sur **Ouvrir**.
 
 ![App Page avec recherche par objet et ouverture directe d’un PDF local](docs/screenshots/01-ouvrir-un-pdf.png)
 
@@ -45,15 +55,17 @@ Cliquer sur **Texte**, puis sur la page ou sur **Placer l’outil au centre**. L
 
 ### 3. Ajouter une image
 
-Cliquer sur **Image**, sélectionner un PNG ou JPEG, puis le placer dans le document. Déplacer son cadre ou ajuster les coordonnées, la largeur et la hauteur dans **Propriétés**. L’exemple utilise un tampon fictif « VALIDÉ » et montre le choix d’un compteur comme destination après l’ouverture locale du PDF.
+Cliquer sur **Image**, sélectionner un PNG ou JPEG, puis le placer dans le document. Déplacer son cadre ou ajuster les coordonnées, la largeur et la hauteur dans **Propriétés**. L’exemple utilise un tampon fictif « VALIDÉ » et montre le choix d’un compteur comme destination après l’ouverture locale du PDF. Le cadre sélectionné se redimensionne avec sa poignée.
 
 ![Ajout d’un tampon image au devis avec réglage de sa position et de ses dimensions](docs/screenshots/03-ajouter-une-image.png)
 
-### 4. Enregistrer une copie
+### 4. Enregistrer
 
-Choisir le **Nom de la copie**, puis **Télécharger le PDF** pour récupérer le résultat sur l’ordinateur. Pour une sauvegarde dans Salesforce, sélectionner l’objet et l’enregistrement destinataire, appliquer la sélection, puis cliquer sur **Enregistrer une copie**. Le nouveau PDF est lié à cet enregistrement et **Voir la copie** ouvre son aperçu. La capture ci-dessous illustre une **sauvegarde simulée localement** ; aucun fichier n’est envoyé à Salesforce par la démonstration.
+Cliquer sur **Enregistrer**. Pour un PDF venant de Salesforce, **Nouvelle version du fichier** est choisi par défaut : le fichier garde son nom et ses versions précédentes restent consultables dans Salesforce Files. **Nouveau fichier** crée un document séparé, nommé librement et lié à l’enregistrement ; c’est le seul choix pour un PDF de l’ordinateur. **Télécharger le PDF** récupère le résultat sans rien enregistrer dans Salesforce. **Voir le fichier** ouvre l’aperçu. La capture ci-dessous illustre une **sauvegarde simulée localement** ; aucun fichier n’est envoyé à Salesforce par la démonstration.
 
-![Message de confirmation illustrant la sauvegarde simulée d’une copie du PDF modifié](docs/screenshots/04-enregistrer-une-copie.png)
+Une nouvelle version est refusée si le fichier a reçu une autre version depuis son ouverture, ou si vous n’avez pas le droit de le modifier ; l’éditeur propose alors d’enregistrer un nouveau fichier, sans perdre vos modifications.
+
+![Message de confirmation illustrant la sauvegarde simulée d’une nouvelle version du PDF modifié](docs/screenshots/04-enregistrer-une-copie.png)
 
 ## Déployer en production
 
@@ -84,7 +96,9 @@ La validation actuelle porte sur le prototype en sandbox ; la recette de l’int
 - Sélectionner et déplacer les ajouts à la souris, au clavier ou avec leurs coordonnées.
 - Supprimer un ajout, annuler/rétablir les 50 dernières commandes.
 - Parcourir, tourner et retirer des pages.
-- Enregistrer une copie liée à l’enregistrement courant, avec réessai idempotent.
+- Ouvrir l’éditeur depuis une opportunité avec le bouton **Modifier un PDF**.
+- Enregistrer une **nouvelle version** du fichier (par défaut) ou un **nouveau fichier** lié à l’enregistrement, avec réessai idempotent.
+- Redimensionner une image ou un masque à la souris.
 
 La page d’origine est affichée une seule fois et les ajouts sont dessinés en direct par-dessus : déplacer, redimensionner ou modifier un ajout ne reconstruit pas le PDF. Le PDF final est fabriqué au téléchargement ou à l’enregistrement ; les ajouts y sont orientés comme à l’écran, y compris sur une page pivotée. Les bibliothèques sont embarquées en Static Resource : aucun service PDF externe ni CDN n’est utilisé.
 
@@ -99,7 +113,7 @@ La page d’origine est affichée une seule fois et les ajouts sont dessinés en
 - Les ajouts restent éditables pendant la session. Après fermeture, ils sont intégrés au contenu du PDF ; le projet d’édition n’est pas conservé.
 - Le moteur PDF.js fonctionne dans le thread principal pour éviter les workers et imports dynamiques sous LWS. Cela reste à qualifier en interface Lightning dans l’org cible.
 - Les messages internes du moteur sont copiés en JavaScript dans son contexte LWS, sans transfert de buffers ni modification des API globales. Les tests navigateur couvrent le moteur natif et la bibliothèque officielle de sandbox LWS ; la recette dans une page Lightning réelle reste nécessaire.
-- Seuls les utilisateurs internes et Lightning Experience sur ordinateur sont ciblés. Les copies sont liées au record avec une visibilité `InternalUsers`.
+- Seuls les utilisateurs internes et Lightning Experience sur ordinateur sont ciblés. Les nouveaux fichiers sont liés à l’enregistrement avec une visibilité `InternalUsers`.
 - Les grands fichiers, polices/CMaps particuliers, PDF/A et l’accessibilité du PDF produit restent hors garantie du prototype.
 
 ## Installer dans une sandbox
@@ -136,7 +150,7 @@ sf project deploy start --dry-run --target-org optiTurpe --source-dir force-app 
 - `check` compile les sources LWC.
 - `test` vérifie le modèle d’édition et l’interface avec les stubs Salesforce.
 - `test:browser` exécute le vrai moteur PDF dans Edge avec une CSP qui interdit les workers et les scripts externes. Ces tests ne reproduisent pas Lightning Web Security.
-- Les tests Apex vérifient lecture, copie, réessai, rejets et accès à un fichier privé. Ils utilisent des fichiers minimaux pour les contrôles serveur ; les tests navigateur couvrent le parsing/export réel.
+- Les tests Apex vérifient lecture, nouveau fichier, nouvelle version (y compris le refus d’une source dépassée), réessai, rejets et accès à un fichier privé. Ils utilisent des fichiers minimaux pour les contrôles serveur ; les tests navigateur couvrent le parsing/export réel.
 
 Pour régénérer les quatre captures à partir du composant et du moteur compilé : `npm run docs:screenshots`. Le script utilise Edge en mode sans interface, des données fictives et des adaptateurs locaux ; il n’appelle aucune organisation Salesforce.
 
@@ -146,6 +160,7 @@ Pour régénérer les quatre captures à partir du composant et du moteur compil
 |---|---|
 | `force-app/main/default/lwc/pdfEditor/` | Interface et coordination des appels Salesforce |
 | `force-app/main/default/lwc/pdfEditorApp/` | Sélection d’un enregistrement pour la page d’application |
+| `force-app/main/default/lwc/pdfEditorAction/` et `quickActions/` | Bouton **Modifier un PDF** des opportunités |
 | `force-app/main/default/flexipages/PDF_Editor_App.flexipage-meta.xml` | Page d’application Lightning de l’éditeur |
 | `force-app/main/default/tabs/PDF_Editor.tab-meta.xml` | Onglet à ajouter à Capitole Énergie |
 | `force-app/main/default/lwc/pdfEditState/` | État, commandes, historique, encodage binaire |

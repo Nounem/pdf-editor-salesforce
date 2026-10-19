@@ -4,12 +4,14 @@ import { loadScript } from 'lightning/platformResourceLoader';
 import listRecordPdfs from '@salesforce/apex/PdfEditorController.listRecordPdfs';
 import loadSmallPdf from '@salesforce/apex/PdfEditorController.loadSmallPdf';
 import saveCopy from '@salesforce/apex/PdfEditorController.saveCopy';
+import saveNewVersion from '@salesforce/apex/PdfEditorController.saveNewVersion';
 import LightningConfirm from 'lightning/confirm';
 
 jest.mock('lightning/platformResourceLoader', () => ({ loadScript: jest.fn() }), { virtual: true });
 jest.mock('@salesforce/apex/PdfEditorController.listRecordPdfs', () => ({ default: jest.fn() }), { virtual: true });
 jest.mock('@salesforce/apex/PdfEditorController.loadSmallPdf', () => ({ default: jest.fn() }), { virtual: true });
 jest.mock('@salesforce/apex/PdfEditorController.saveCopy', () => ({ default: jest.fn() }), { virtual: true });
+jest.mock('@salesforce/apex/PdfEditorController.saveNewVersion', () => ({ default: jest.fn() }), { virtual: true });
 jest.mock('lightning/confirm', () => ({ __esModule: true, default: { open: jest.fn() } }), { virtual: true });
 
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
@@ -25,6 +27,12 @@ beforeEach(() => {
 });
 afterEach(() => { while (document.body.firstChild) document.body.removeChild(document.body.firstChild); jest.clearAllMocks(); });
 
+const button = (element, label) => [...element.shadowRoot.querySelectorAll('lightning-button')].find((item) => item.label === label);
+async function addElement(element, tool = 'Texte') {
+    button(element, tool).click(); await flush();
+    button(element, 'Placer l’outil au centre').click(); await flush(); await flush();
+}
+
 async function mountAndOpen() {
     const element = createElement('c-pdf-editor', { is: PdfEditor });
     element.recordId = '001record';
@@ -37,19 +45,43 @@ async function mountAndOpen() {
     return element;
 }
 
-it('loads the record file and saves a copy, retaining request id after a network failure', async () => {
-    saveCopy.mockRejectedValueOnce({ body: { message: 'Réseau indisponible' } }).mockResolvedValueOnce({ documentId: '069copy', versionId: '068copy' });
+it('saves a Salesforce file as a new version by default, retaining request id after a network failure', async () => {
+    saveNewVersion.mockRejectedValueOnce({ body: { message: 'Réseau indisponible' } }).mockResolvedValueOnce({ documentId: '069source', versionId: '068next' });
     const element = await mountAndOpen();
-    const save = () => [...element.shadowRoot.querySelectorAll('lightning-button')].find((button) => button.label === 'Enregistrer une copie');
+    const save = () => [...element.shadowRoot.querySelectorAll('lightning-button')].find((button) => button.label === 'Enregistrer');
     expect(loadSmallPdf).toHaveBeenCalledWith({ recordId: '001record', versionId: '068source' });
     save().click(); await flush(); await flush();
     expect(element.shadowRoot.querySelector('[role="alert"]').textContent).toContain('Réseau indisponible');
     save().click(); await flush(); await flush();
-    expect(saveCopy).toHaveBeenCalledTimes(2);
-    expect(saveCopy.mock.calls[0][0].requestId).toEqual(saveCopy.mock.calls[1][0].requestId);
-    expect(saveCopy.mock.calls[1][0].sourceVersionId).toEqual('068source');
-    expect(element.shadowRoot.querySelector('.success').textContent).toContain('enregistrée');
+    expect(saveNewVersion).toHaveBeenCalledTimes(2);
+    expect(saveNewVersion.mock.calls[0][0].requestId).toEqual(saveNewVersion.mock.calls[1][0].requestId);
+    expect(saveNewVersion.mock.calls[1][0].sourceVersionId).toEqual('068source');
+    expect(saveCopy).not.toHaveBeenCalled();
+    expect(element.shadowRoot.querySelector('.success').textContent).toContain('Nouvelle version');
     expect(save().disabled).toBe(true);
+});
+
+it('saves a new file with its name when the user chooses it', async () => {
+    saveCopy.mockResolvedValue({ documentId: '069copy', versionId: '068copy' });
+    const element = await mountAndOpen();
+    element.shadowRoot.querySelector('lightning-radio-group').dispatchEvent(new CustomEvent('change', { detail: { value: 'copy' } }));
+    await flush();
+    const name = [...element.shadowRoot.querySelectorAll('lightning-input')].find((item) => item.label === 'Nom du nouveau fichier');
+    expect(name.value).toBe('Contrat — copie');
+    [...element.shadowRoot.querySelectorAll('lightning-button')].find((item) => item.label === 'Enregistrer').click();
+    await flush(); await flush();
+    expect(saveCopy).toHaveBeenCalledWith(expect.objectContaining({ title: 'Contrat — copie', sourceVersionId: '068source' }));
+    expect(saveNewVersion).not.toHaveBeenCalled();
+});
+
+it('builds the next version on the version just saved', async () => {
+    saveNewVersion.mockResolvedValueOnce({ documentId: '069source', versionId: '068next' }).mockResolvedValueOnce({ documentId: '069source', versionId: '068third' });
+    const element = await mountAndOpen();
+    const save = () => [...element.shadowRoot.querySelectorAll('lightning-button')].find((item) => item.label === 'Enregistrer');
+    save().click(); await flush(); await flush();
+    await addElement(element);
+    save().click(); await flush(); await flush();
+    expect(saveNewVersion.mock.calls[1][0].sourceVersionId).toBe('068next');
 });
 
 it('surfaces server access errors without opening an editor', async () => {
@@ -133,16 +165,10 @@ it('prevents saving an open document to a different record after navigation', as
     const element = await mountAndOpen();
     element.recordId = '001other';
     await flush(); await flush();
-    const save = [...element.shadowRoot.querySelectorAll('lightning-button')].find((button) => button.label === 'Enregistrer une copie');
+    const save = [...element.shadowRoot.querySelectorAll('lightning-button')].find((button) => button.label === 'Enregistrer');
     expect(save.disabled).toBe(true);
     expect(element.shadowRoot.querySelector('[role="alert"]').textContent).toContain('enregistrement a changé');
 });
-
-const button = (element, label) => [...element.shadowRoot.querySelectorAll('lightning-button')].find((item) => item.label === label);
-async function addElement(element, tool = 'Texte') {
-    button(element, tool).click(); await flush();
-    button(element, 'Placer l’outil au centre').click(); await flush(); await flush();
-}
 
 it('asks before closing unsaved work and prevents closing during a save', async () => {
     const element = await mountAndOpen();
@@ -151,8 +177,8 @@ it('asks before closing unsaved work and prevents closing during a save', async 
     await expect(element.confirmClose()).resolves.toBe(false);
     await expect(element.confirmClose()).resolves.toBe(true);
     let finishSave;
-    saveCopy.mockImplementation(() => new Promise((resolve) => { finishSave = resolve; }));
-    [...element.shadowRoot.querySelectorAll('lightning-button')].find((button) => button.label === 'Enregistrer une copie').click();
+    saveNewVersion.mockImplementation(() => new Promise((resolve) => { finishSave = resolve; }));
+    [...element.shadowRoot.querySelectorAll('lightning-button')].find((button) => button.label === 'Enregistrer').click();
     await flush();
     await expect(element.confirmClose()).rejects.toThrow('Attendez la fin du traitement');
     finishSave({ documentId: '069copy', versionId: '068copy' });
@@ -175,7 +201,7 @@ async function mountLocalPdf() {
 it('keeps local edits when assigning a destination later, and saves only to that destination', async () => {
     const element = await mountLocalPdf();
     const button = (label) => [...element.shadowRoot.querySelectorAll('lightning-button')].find((item) => item.label === label);
-    expect(button('Enregistrer une copie').disabled).toBe(true);
+    expect(button('Enregistrer').disabled).toBe(true);
     button('Texte').click(); await flush();
     button('Placer l’outil au centre').click(); await flush(); await flush(); await flush();
     expect(element.shadowRoot.querySelectorAll('.element')).toHaveLength(1);
@@ -184,13 +210,9 @@ it('keeps local edits when assigning a destination later, and saves only to that
     await flush(); await flush();
     expect(element.shadowRoot.querySelectorAll('.element')).toHaveLength(1);
     expect(LightningConfirm.open).not.toHaveBeenCalled();
-    element.contextPending = true;
-    await flush();
-    expect(button('Enregistrer une copie').disabled).toBe(true);
-    element.contextPending = false;
-    await flush();
+    expect(element.shadowRoot.querySelector('lightning-radio-group')).toBeNull();
     saveCopy.mockResolvedValue({ documentId:'069copy', versionId:'068copy' });
-    button('Enregistrer une copie').click(); await flush(); await flush();
+    button('Enregistrer').click(); await flush(); await flush();
     expect(saveCopy).toHaveBeenCalledWith(expect.objectContaining({recordId:'006opportunity',sourceVersionId:null}));
 });
 

@@ -7,7 +7,7 @@
     <targets><target>lightning__AppPage</target></targets>
     <targetConfigs>
         <targetConfig targets="lightning__AppPage">
-            <property name="objectApiName" type="String" label="Objet présélectionné" default="Account" description="Présélection uniquement : les utilisateurs peuvent choisir un autre objet accessible." />
+            <property name="objectApiName" type="String" label="Objet présélectionné" default="Opportunity" description="Présélection uniquement : les utilisateurs peuvent choisir un autre objet accessible." />
             <property name="pickerLabel" type="String" label="Libellé de la recherche d’enregistrement" default="Enregistrement" required="true" />
             <supportedFormFactors><supportedFormFactor type="Large" /></supportedFormFactors>
         </targetConfig>

@@ -99,8 +99,7 @@ try {
     await ready();
     await page.getByLabel('Type d’objet', { exact: true }).selectOption('Compteur__c');
     await page.getByLabel('Enregistrement', { exact: true }).selectOption('demo-record');
-    await page.getByRole('button', { name: 'Utiliser cet enregistrement', exact: true }).click();
-    await page.getByRole('button', { name: 'Changer d’enregistrement', exact: true }).waitFor();
+    await page.getByRole('button', { name: 'Ouvrir l’enregistrement', exact: true }).waitFor();
     await ready();
     if (await page.getByRole('button', { name: 'Texte : Bon pour accord', exact: true }).count() !== 1) throw new Error('Local edits were lost when selecting a destination');
     const stamp = await page.evaluate(() => {
@@ -118,15 +117,28 @@ try {
     await commitInput('Position X (pt PDF)', '345');
     await commitInput('Position Y (pt PDF)', '150');
     await page.screenshot({ path: path.join(output, '03-ajouter-une-image.png'), fullPage: true });
-    await page.getByRole('button', { name: 'Enregistrer une copie', exact: true }).click();
-    await page.getByText('Votre copie a été enregistrée dans les fichiers de cet enregistrement.').waitFor();
+    await page.getByRole('button', { name: 'Enregistrer', exact: true }).click();
+    await page.getByText('Nouveau fichier enregistré sur cet enregistrement.').waitFor();
     await ready();
     const saved = await page.evaluate(() => window.demoSavedRequest);
     if (!saved?.payload?.startsWith('JVBERi0')) throw new Error('No PDF was produced by the screenshot flow');
-    await page.screenshot({ path: path.join(output, '04-enregistrer-une-copie.png'), fullPage: true });
+    // A Salesforce file is saved as a new version of itself by default.
     await page.getByLabel('PDF de cet enregistrement (50 plus récents)').selectOption('demo-version');
     await page.getByRole('button', { name: 'Ouvrir', exact: true }).click();
     await ready();
+    await page.getByRole('button', { name: 'Texte', exact: true }).click();
+    await page.getByRole('button', { name: 'Placer l’outil au centre' }).click();
+    await ready();
+    await commitInput('Texte (une ligne)', 'Bon pour accord');
+    await commitInput('Position X (pt PDF)', '42');
+    await commitInput('Position Y (pt PDF)', '177');
+    if (!await page.getByLabel('Nouvelle version du fichier').isChecked()) throw new Error('New version must be the default for a Salesforce file');
+    await page.getByRole('button', { name: 'Enregistrer', exact: true }).click();
+    await page.getByText('Nouvelle version enregistrée.', { exact: false }).waitFor();
+    await ready();
+    const version = await page.evaluate(() => window.demoVersionRequest);
+    if (!version?.payload?.startsWith('JVBERi0') || version.sourceVersionId !== 'demo-version') throw new Error('No new version was produced by the screenshot flow');
+    await page.screenshot({ path: path.join(output, '04-enregistrer-une-copie.png'), fullPage: true });
     // Check the second native file-picker button and narrow desktop layouts too.
     const localChooserPromise = page.waitForEvent('filechooser');
     await page.getByRole('button', { name: 'Depuis mon ordinateur', exact: true }).click();

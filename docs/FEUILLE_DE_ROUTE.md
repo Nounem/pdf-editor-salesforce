@@ -24,9 +24,9 @@ Validée le 19 octobre 2026. Objectif : un éditeur utilisable par tous, en 3 é
 
 Décisions du 19 octobre 2026 : **« Nouvelle version du fichier » par défaut** ; **Opportunité** en priorité (objet le plus utilisé).
 
-- [ ] Action rapide « Modifier un PDF » sur les pages d’enregistrement (Opportunité d’abord)
-- [ ] Choix de l’enregistrement seulement à l’enregistrement (supprimer « Changer d’enregistrement »)
-- [ ] « Nouvelle version du fichier » / « Nouveau fichier » / « Télécharger »
+- [x] Action « Modifier un PDF » sur l’Opportunité (à placer dans la présentation de page, voir README)
+- [x] Choix de l’enregistrement appliqué immédiatement, Opportunité présélectionnée (« Utiliser / Changer / Annuler » supprimés)
+- [x] « Nouvelle version du fichier » (par défaut) / « Nouveau fichier » / « Télécharger »
 
 ## Lot 1 — L’essentiel
 
