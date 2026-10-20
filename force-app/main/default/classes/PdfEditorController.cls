@@ -15,7 +15,7 @@ public with sharing class PdfEditorController {
     public static List<ObjectChoice> listRecordObjects() {
         Set<String> standardObjects = new Set<String>{
             'account', 'contact', 'opportunity', 'lead', 'quote',
-            'asset', 'campaign', 'product2', 'pricebook2', 'contract', 'order', 'servicecontract'
+            'asset', 'campaign', 'product2', 'pricebook2', 'order', 'servicecontract'
         };
         Map<String, Schema.SObjectType> types = Schema.getGlobalDescribe();
         List<ObjectChoice> result = new List<ObjectChoice>();
@@ -25,9 +25,14 @@ public with sharing class PdfEditorController {
             // Global describe keys can be lowercase; Set membership is case-sensitive.
             if (!standardObjects.contains(name.toLowerCase()) && !name.endsWith('__c')) continue;
             // Deferred describes skip field metadata: about 2 to 6 times faster in large orgs.
-            // Custom objects and the standard objects above always have a readable Name field.
             Schema.DescribeSObjectResult description = types.get(name).getDescribe(SObjectDescribeOptions.DEFERRED);
             if (!description.isAccessible() || !description.isQueryable() || description.isCustomSetting()) continue;
+            // Custom objects always have a Name field; standard ones may not (Contract uses its number),
+            // and the record picker searches by Name. Only the few standard objects are checked.
+            if (!description.isCustom()) {
+                Schema.SObjectField nameField = description.fields.getMap().get('Name');
+                if (nameField == null || !nameField.getDescribe().isAccessible()) continue;
+            }
             result.add(new ObjectChoice(description));
         }
         return result;

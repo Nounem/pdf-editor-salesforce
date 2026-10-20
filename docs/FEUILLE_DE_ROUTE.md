@@ -47,7 +47,8 @@ Décisions du 19 octobre 2026 : **« Nouvelle version du fichier » par défaut*
 - [x] Champs de l’enregistrement à insérer (valeurs formatées, noms des enregistrements liés)
 - [x] Déplacer et extraire une page, ajouter les pages d’un autre PDF
 - [x] Brouillon conservé sur le poste (7 jours, effacé après enregistrement)
-- [x] Objets Contrat, Commande, Contrat de service (les objets personnalisés étaient déjà proposés)
+- [x] Objets Commande et Contrat de service (les objets personnalisés étaient déjà proposés)
+- [ ] Contrat : son nom est un numéro (pas de champ `Name`), la recherche d’enregistrement doit être adaptée
 
 ## Lot 3 — Plus tard
 
