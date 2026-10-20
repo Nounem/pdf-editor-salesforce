@@ -23,7 +23,8 @@ beforeEach(() => {
     listRecordPdfs.mockResolvedValue([{ title: 'Contrat', size: 120, versionId: '068source' }]);
     loadSmallPdf.mockResolvedValue({ title: 'Contrat', versionId: '068source', base64: btoa('%PDF-1.4') });
     window.LovePdfEngine = { open: jest.fn().mockImplementation(async () => makeHandle()), exportPdf: jest.fn().mockResolvedValue(new Uint8Array([37, 80, 68, 70, 45])) };
-    if (!global.crypto.randomUUID) global.crypto.randomUUID = jest.fn(() => '00000000-0000-0000-0000-000000000001');
+    let counter = 0;
+    global.crypto.randomUUID = jest.fn(() => `00000000-0000-0000-0000-${String(++counter).padStart(12, '0')}`);
 });
 afterEach(() => { while (document.body.firstChild) document.body.removeChild(document.body.firstChild); jest.clearAllMocks(); });
 
@@ -156,12 +157,12 @@ it('adds text, commits property edits and undoes deletion', async () => {
     expect(element.shadowRoot.querySelectorAll('.element')).toHaveLength(1);
     const text = element.shadowRoot.querySelector('[data-property="text"]');
     text.value = 'Bon pour accord';
-    text.dispatchEvent(new CustomEvent('commit'));
+    text.dispatchEvent(new CustomEvent('blur'));
     await flush(); await flush();
     expect(element.shadowRoot.querySelector('.element').getAttribute('aria-label')).toContain('Bon pour accord');
     button('Supprimer cet ajout').click(); await flush(); await flush();
     expect(element.shadowRoot.querySelectorAll('.element')).toHaveLength(0);
-    [...element.shadowRoot.querySelectorAll('lightning-button-icon')].find((item) => item.alternativeText === 'Annuler').click();
+    [...element.shadowRoot.querySelectorAll('lightning-button-icon')].find((item) => item.alternativeText.startsWith('Annuler')).click();
     await flush(); await flush();
     expect(element.shadowRoot.querySelectorAll('.element')).toHaveLength(1);
 });
@@ -281,7 +282,7 @@ it('shows additions live without rebuilding or re-rendering the PDF', async () =
 it('resizes a mask with its handle', async () => {
     HTMLElement.prototype.setPointerCapture = jest.fn();
     const element = await mountAndOpen();
-    await addElement(element, 'Masquer visuellement');
+    await addElement(element, 'Masquer');
     const handle = element.shadowRoot.querySelector('.resize-handle');
     const pointer = (type, x, y) => handle.dispatchEvent(new MouseEvent(type, { button: 0, clientX: x, clientY: y, bubbles: true }));
     pointer('pointerdown', 100, 100);
@@ -290,4 +291,85 @@ it('resizes a mask with its handle', async () => {
     await flush();
     expect(Number(element.shadowRoot.querySelector('[data-property="width"]').value)).toBeGreaterThan(140);
     expect(Number(element.shadowRoot.querySelector('[data-property="height"]').value)).toBeGreaterThan(32);
+});
+
+async function chooseFromMenu(element, menuClass, value) {
+    element.shadowRoot.querySelector(menuClass).dispatchEvent(new CustomEvent('select', { detail: { value } }));
+    await flush();
+    button(element, 'Placer l’outil au centre').click(); await flush(); await flush();
+}
+
+it('applies a ready-made stamp sized to its text', async () => {
+    const element = await mountAndOpen();
+    const handle = await window.LovePdfEngine.open.mock.results[0].value;
+    handle.measure = jest.fn(() => ({ width: 100, height: 10 }));
+    await chooseFromMenu(element, '.stamp-menu', 'Bon pour accord');
+    expect(element.shadowRoot.querySelector('.stamp-content').textContent).toBe('Bon pour accord');
+    expect(handle.measure).toHaveBeenCalledWith('Bon pour accord', 14, { bold: true });
+    // 100 pt of bold text plus 0.4 em of padding on each side.
+    const width = Number(/width:([0-9.]+)px/.exec(element.shadowRoot.querySelector('.element .content').getAttribute('style'))[1]);
+    expect(width).toBeCloseTo((100 + 2 * 0.4 * 14) * 0.85, 5);
+    expect([...element.shadowRoot.querySelectorAll('lightning-input')].some((item) => item.label === 'Texte du tampon')).toBe(true);
+    expect(element.shadowRoot.querySelector('.element').getAttribute('aria-label')).toBe('Tampon : Bon pour accord');
+});
+
+it('places check and cross marks, and highlights', async () => {
+    const element = await mountAndOpen();
+    await chooseFromMenu(element, '.check-menu', 'cross');
+    expect(element.shadowRoot.querySelector('.check-content path').getAttribute('d')).toBe('M20 20 L80 80 M20 80 L80 20');
+    expect(element.shadowRoot.querySelector('.resize-handle')).not.toBeNull();
+    await addElement(element, 'Surligner');
+    expect(element.shadowRoot.querySelector('.highlight-content')).not.toBeNull();
+    expect(element.shadowRoot.querySelectorAll('.element')).toHaveLength(2);
+});
+
+it('edits multi-line bold text in another font', async () => {
+    const element = await mountAndOpen();
+    const handle = await window.LovePdfEngine.open.mock.results[0].value;
+    handle.measure = jest.fn(() => ({ width: 120, height: 36 }));
+    await addElement(element);
+    const text = element.shadowRoot.querySelector('[data-property="text"]');
+    text.value = 'Bon pour accord\r\nLe 20/10/2026';
+    text.dispatchEvent(new CustomEvent('blur'));
+    await flush();
+    element.shadowRoot.querySelector('[data-property="font"]').dispatchEvent(new CustomEvent('change', { detail: { value: 'Times' } }));
+    await flush();
+    const bold = element.shadowRoot.querySelector('[data-property="bold"]');
+    bold.checked = true;
+    bold.dispatchEvent(new CustomEvent('change', { detail: { checked: true } }));
+    await flush();
+    expect(handle.measure).toHaveBeenLastCalledWith('Bon pour accord\nLe 20/10/2026', 16, { font: 'Times', bold: true });
+    expect(element.shadowRoot.querySelector('.text-content').textContent).toBe('Bon pour accord\nLe 20/10/2026');
+    expect(element.shadowRoot.querySelector('.text-content').getAttribute('style')).toContain('font-weight:700');
+});
+
+it('supports keyboard shortcuts outside of form fields', async () => {
+    const element = await mountAndOpen();
+    await addElement(element);
+    const editor = element.shadowRoot.querySelector('section.editor');
+    const press = (key, options = {}) => editor.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true, ...options }));
+    press('z', { ctrlKey: true }); await flush();
+    expect(element.shadowRoot.querySelectorAll('.element')).toHaveLength(0);
+    press('y', { ctrlKey: true }); await flush();
+    expect(element.shadowRoot.querySelectorAll('.element')).toHaveLength(1);
+    element.shadowRoot.querySelector('.element').click(); await flush();
+    press('Delete'); await flush();
+    expect(element.shadowRoot.querySelectorAll('.element')).toHaveLength(0);
+});
+
+it('opens the signature pad and requires ink before use', async () => {
+    const element = await mountAndOpen();
+    button(element, 'Signature').click(); await flush();
+    expect(element.shadowRoot.querySelector('.signature-canvas')).not.toBeNull();
+    expect(button(element, 'Utiliser cette signature').disabled).toBe(true);
+    expect(element.shadowRoot.querySelector('.placement-hint').textContent).toContain('Dessinez votre signature');
+    button(element, 'Annuler').click(); await flush();
+    expect(element.shadowRoot.querySelector('.signature-canvas')).toBeNull();
+});
+
+it('fits the page to the width by default', async () => {
+    const element = await mountAndOpen();
+    const zoom = [...element.shadowRoot.querySelectorAll('lightning-combobox')].find((item) => item.label === 'Zoom');
+    expect(zoom.value).toBe('fit');
+    expect(zoom.options[0]).toEqual({ label: 'Ajuster à la largeur', value: 'fit' });
 });

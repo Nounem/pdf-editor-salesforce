@@ -46,8 +46,19 @@ canvas { display: block; }
 .element:focus-visible { outline: 2px solid var(--pdf-accent); outline-offset: 3px; }
 /* Live rendering of additions: the PDF itself is only built on download or save. */
 .element .content { position: absolute; left: 50%; top: 50%; pointer-events: none; }
-.text-content { position: absolute; left: 0; bottom: -0.21em; line-height: 1; white-space: pre; font-family: Helvetica, Arial, sans-serif; }
+/* Lines are 1.2 em apart like in the PDF; the last baseline sits on the bottom of the box. */
+.text-content { position: absolute; left: 0; bottom: -0.2535em; line-height: 1.2; white-space: pre; text-align: left; font-family: Helvetica, Arial, sans-serif; }
+.stamp-content { display: flex; align-items: center; justify-content: center; box-sizing: border-box; width: 100%; height: 100%; line-height: 1; white-space: pre; font-family: Helvetica, Arial, sans-serif; font-weight: 700; }
+.check-content { display: block; width: 100%; height: 100%; overflow: visible; }
+.check-content path { fill: none; stroke-width: 12; stroke-linecap: round; stroke-linejoin: round; }
+.highlight-content { display: block; width: 100%; height: 100%; background: rgba(255, 222, 0, 0.4); }
 .image-content { display: block; width: 100%; height: 100%; }
+.editor:focus { outline: none; }
+.signature-pad { margin: 0 var(--slds-g-spacing-4, 1rem) var(--slds-g-spacing-3, 0.75rem); padding: var(--slds-g-spacing-3, 0.75rem); background: var(--pdf-surface); border: 1px solid var(--pdf-border); border-radius: var(--slds-g-radius-border-2, 0.25rem); }
+.signature-title { margin-bottom: var(--slds-g-spacing-2, 0.5rem); }
+/* The paper stays white whatever the org theme, like the PDF page. */
+.signature-canvas { display: block; width: 100%; max-width: 480px; aspect-ratio: 3 / 1; background: #fff; border: 1px dashed var(--pdf-border); border-radius: var(--slds-g-radius-border-2, 0.25rem); cursor: crosshair; touch-action: none; }
+.signature-actions { display: flex; flex-wrap: wrap; gap: var(--slds-g-spacing-2, 0.5rem); margin-top: var(--slds-g-spacing-2, 0.5rem); }
 .mask-content { display: block; width: 100%; height: 100%; background: #fff; box-shadow: inset 0 0 0 1px var(--pdf-border); }
 .resize-handle { position: absolute; width: 12px; height: 12px; right: -7px; bottom: -7px; background: var(--pdf-surface); border: 2px solid var(--pdf-accent); border-radius: 2px; cursor: nwse-resize; touch-action: none; }
 .property-empty { color: var(--pdf-muted); }

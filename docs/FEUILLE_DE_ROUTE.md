@@ -30,12 +30,17 @@ Décisions du 19 octobre 2026 : **« Nouvelle version du fichier » par défaut*
 
 ## Lot 1 — L’essentiel
 
-- [ ] Signature dessinée
-- [ ] Tampons : Bon pour accord, Lu et approuvé, date du jour, nom de l’utilisateur, Copie conforme
-- [ ] Cases ✓ / ✗ et surligneur
-- [ ] Texte multiligne, gras, 3 polices
-- [ ] Raccourcis Ctrl+Z / Ctrl+Y / Suppr
-- [ ] Zoom « Ajuster à la largeur »
+- [x] Signature dessinée (réutilisable pendant la session)
+- [x] Tampons : Bon pour accord, Lu et approuvé, Copie conforme, Payé, date du jour, nom de l’utilisateur
+- [x] Cases ✓ / ✗ et surligneur
+- [x] Texte multiligne, gras, 3 polices
+- [x] Raccourcis Ctrl+Z / Ctrl+Y / Suppr / Échap
+- [x] Zoom « Ajuster à la largeur »
+
+## Performance (20 octobre 2026)
+
+- [x] Moteur PDF chargé à la première ouverture d’un PDF, préchargé au survol (sous LWS : ~8,7 s évitées à l’affichage)
+- [x] Liste des objets en describe différé (0,4 s au lieu de 0,8 à 2,3 s)
 
 ## Lot 2 — Gain de temps
 

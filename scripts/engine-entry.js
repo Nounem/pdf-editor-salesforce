@@ -1,6 +1,6 @@
 import { getDocument, version } from 'pdfjs-dist/build/pdf.mjs';
 import { WorkerMessageHandler } from 'pdfjs-dist/build/pdf.worker.mjs';
-import { PDFDocument, PDFName, PDFSignature, StandardFonts, degrees, rgb } from 'pdf-lib';
+import { LineCapStyle, PDFDocument, PDFName, PDFSignature, StandardFonts, degrees, rgb } from 'pdf-lib';
 
 // Deliberately use PDF.js' in-process worker for this small-file prototype.
 // No blob worker URL, runtime import or CDN is required inside LWS.
@@ -8,6 +8,42 @@ globalThis.pdfjsWorker = { WorkerMessageHandler };
 
 const MAX_BYTES = 1000000;
 const MAX_PAGES = 20;
+// Shared with the editor overlays (pdfEditor.js): keep both sides in sync.
+const LINE_HEIGHT = 1.2;
+const STAMP_PADDING = 0.4;
+const STAMP_BASELINE = 0.4;
+const FONTS = {
+    Helvetica: [StandardFonts.Helvetica, StandardFonts.HelveticaBold],
+    Times: [StandardFonts.TimesRoman, StandardFonts.TimesRomanBold],
+    Courier: [StandardFonts.Courier, StandardFonts.CourierBold]
+};
+// Check and cross marks as segments in a unit square, y pointing up.
+const MARKS = {
+    check: [[[0.15, 0.5], [0.4, 0.25]], [[0.4, 0.25], [0.85, 0.8]]],
+    cross: [[[0.2, 0.2], [0.8, 0.8]], [[0.2, 0.8], [0.8, 0.2]]]
+};
+
+function fontName(family, bold) {
+    return (FONTS[family] || FONTS.Helvetica)[bold ? 1 : 0];
+}
+
+function fontCache(document) {
+    const cache = new Map();
+    return async (family, bold) => {
+        const name = fontName(family, bold);
+        if (!cache.has(name)) cache.set(name, await document.embedFont(name));
+        return cache.get(name);
+    };
+}
+
+// Point at (a, b) in the element's own frame, which is turned by its rotation.
+function along(element, a, b) {
+    const angle = ((element.rotation || 0) * Math.PI) / 180;
+    return {
+        x: element.x + a * Math.cos(angle) - b * Math.sin(angle),
+        y: element.y + a * Math.sin(angle) + b * Math.cos(angle)
+    };
+}
 
 async function inspect(bytes) {
     if (!bytes.length || bytes.length > MAX_BYTES) throw new Error('Le PDF est limité à 1 Mo dans ce prototype.');
@@ -55,7 +91,7 @@ async function exportPdf(source, state, assets) {
     // Stable bytes are required when retrying an idempotent save after a lost response.
     output.setCreationDate(original.getCreationDate() || new Date(0));
     output.setModificationDate(original.getModificationDate() || new Date(0));
-    const font = await output.embedFont(StandardFonts.Helvetica);
+    const font = fontCache(output);
     const imageCache = new Map();
     for (const item of state.pages) {
         const [page] = await output.copyPages(original, [item.sourceIndex]);
@@ -64,17 +100,35 @@ async function exportPdf(source, state, assets) {
         for (const element of item.elements) {
             // Elements are created upright for the page orientation shown at that time.
             const rotate = degrees(element.rotation || 0);
+            const { width, height } = element;
             if (element.type === 'text') {
-                page.drawText(element.text, { x: element.x, y: element.y, size: element.fontSize, font, color: color(element.color), rotate });
+                // (x, y) is the bottom of the block: the first baseline sits above the other lines.
+                const size = element.fontSize;
+                const lines = element.text.split('\n');
+                page.drawText(element.text, { ...along(element, 0, (lines.length - 1) * LINE_HEIGHT * size), size,
+                    font: await font(element.font, element.bold), color: color(element.color), rotate, lineHeight: LINE_HEIGHT * size });
+            } else if (element.type === 'stamp') {
+                const size = element.fontSize;
+                const ink = color(element.color);
+                page.drawRectangle({ x: element.x, y: element.y, width, height, borderColor: ink, borderWidth: Math.max(1, size * 0.1), rotate });
+                page.drawText(element.text, { ...along(element, STAMP_PADDING * size, STAMP_BASELINE * size), size,
+                    font: await font('Helvetica', true), color: ink, rotate });
+            } else if (element.type === 'highlight') {
+                page.drawRectangle({ x: element.x, y: element.y, width, height, color: rgb(1, 0.87, 0), opacity: 0.4, rotate });
+            } else if (element.type === 'check') {
+                for (const [from, to] of MARKS[element.mark] || MARKS.check) {
+                    page.drawLine({ start: along(element, from[0] * width, from[1] * height), end: along(element, to[0] * width, to[1] * height),
+                        thickness: Math.max(1, width * 0.12), color: color(element.color), lineCap: LineCapStyle.Round });
+                }
             } else if (element.type === 'mask') {
-                page.drawRectangle({ x: element.x, y: element.y, width: element.width, height: element.height, color: rgb(1, 1, 1), rotate });
+                page.drawRectangle({ x: element.x, y: element.y, width, height, color: rgb(1, 1, 1), rotate });
             } else if (element.type === 'image') {
                 if (!imageCache.has(element.assetId)) {
                     const asset = assets.get(element.assetId);
                     if (!asset) throw new Error('Image introuvable.');
                     imageCache.set(element.assetId, asset.mime === 'image/png' ? await output.embedPng(asset.bytes) : await output.embedJpg(asset.bytes));
                 }
-                page.drawImage(imageCache.get(element.assetId), { x: element.x, y: element.y, width: element.width, height: element.height, rotate });
+                page.drawImage(imageCache.get(element.assetId), { x: element.x, y: element.y, width, height, rotate });
             }
         }
     }
@@ -93,7 +147,11 @@ async function open(bytes) {
         useWasm: false, isImageDecoderSupported: false, stopAtErrors: true
     });
     const pdf = await task.promise;
-    const font = await inspected.embedFont(StandardFonts.Helvetica);
+    // Standard fonts carry no file data: embedding all six only loads their metrics.
+    const fonts = new Map();
+    for (const pair of Object.values(FONTS)) {
+        for (const name of pair) fonts.set(name, await inspected.embedFont(name));
+    }
     return {
         pageCount: pdf.numPages,
         annotations: hasAnnotations(inspected),
@@ -115,10 +173,18 @@ async function open(bytes) {
             await page.render({ canvasContext: canvas.getContext('2d'), viewport, transform: [ratio, 0, 0, ratio, 0, 0], annotationMode: 0 }).promise;
             return viewport;
         },
-        measure(text, size) {
-            if (!text.trim() || text.length > 200 || /[\r\n]/.test(text)) throw new Error('Saisissez une ligne de 1 à 200 caractères.');
+        // Width of the longest line and height of the block, from the top of the first line to the last baseline.
+        measure(text, size, { font: family, bold } = {}) {
+            const lines = String(text).split('\n');
+            if (!String(text).trim() || lines.length > 10 || lines.some((line) => line.length > 200) || /\r/.test(text)) {
+                throw new Error('Saisissez de 1 à 10 lignes de 200 caractères maximum.');
+            }
+            const metrics = fonts.get(fontName(family, bold));
             try {
-                return { width: font.widthOfTextAtSize(text, size), height: font.heightAtSize(size, { descender: false }) };
+                return {
+                    width: Math.max(...lines.map((line) => metrics.widthOfTextAtSize(line, size))),
+                    height: metrics.heightAtSize(size, { descender: false }) + (lines.length - 1) * LINE_HEIGHT * size
+                };
             } catch {
                 throw new Error('Ce caractère n’est pas pris en charge. Utilisez du texte latin dans cette version.');
             }

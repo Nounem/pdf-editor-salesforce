@@ -105,6 +105,55 @@ test('PDFs with links open, and the copy drops the links but keeps rotated addit
     expect(exported.getPage(0).getRotation().angle).toBe(90);
 });
 
+test('exports multi-line text in three fonts, stamps, highlights and check marks', async ({ page }) => {
+    await openEnginePage(page);
+    const result = await page.evaluate(async (source) => {
+        const engine = window.LovePdfEngine;
+        const bytes = new Uint8Array(source);
+        const handle = await engine.open(bytes);
+        const twoLines = handle.measure('Bon pour accord\nLe 20/10/2026', 14, { font: 'Times', bold: true });
+        const oneLine = handle.measure('Bon pour accord', 14, { font: 'Times', bold: true });
+        const courier = handle.measure('iiii', 10, { font: 'Courier' });
+        const mmmm = handle.measure('MMMM', 10, { font: 'Courier' });
+        const stamp = handle.measure('PAYÉ', 14, { bold: true });
+        const state = { pages: [{ id: 'p0', sourceIndex: 0, rotation: 0, elements: [
+            { id: 't', type: 'text', x: 40, y: 300, text: 'Bon pour accord\nLe 20/10/2026', fontSize: 14, color: '#000000', font: 'Times', bold: true, ...twoLines },
+            { id: 's', type: 'stamp', x: 40, y: 200, text: 'PAYÉ', fontSize: 14, color: '#c23934', width: stamp.width + 11.2, height: 21 },
+            { id: 'h', type: 'highlight', x: 200, y: 200, width: 120, height: 16 },
+            { id: 'c', type: 'check', mark: 'check', x: 40, y: 120, width: 30, height: 30, color: '#000000' },
+            { id: 'x', type: 'check', mark: 'cross', x: 100, y: 120, width: 30, height: 30, color: '#000000' }
+        ] }] };
+        const output = await engine.exportPdf(bytes, state, new Map());
+        const preview = await engine.open(output);
+        const canvas = document.querySelector('canvas');
+        await preview.render(0, canvas, 1, 0);
+        const context = canvas.getContext('2d');
+        const ratio = canvas.width / 400;
+        const pixels = (x, y, w, h, test) => {
+            const data = context.getImageData(x * ratio, (500 - y - h) * ratio, w * ratio, h * ratio).data;
+            let count = 0;
+            for (let i = 0; i < data.length; i += 4) if (test(data[i], data[i + 1], data[i + 2])) count += 1;
+            return count;
+        };
+        const dark = (r, g, b) => r < 90 && g < 90 && b < 90;
+        const result = {
+            secondLine: twoLines.height > oneLine.height * 1.8,
+            monospace: Math.abs(courier.width - mmmm.width) < 0.01,
+            textInk: pixels(40, 280, 140, 40, dark),
+            stampRed: pixels(40, 200, 60, 21, (r, g, b) => r > 150 && g < 90 && b < 90),
+            highlightYellow: pixels(200, 200, 120, 16, (r, g, b) => r > 200 && g > 180 && b < 160),
+            checkInk: pixels(40, 120, 30, 30, dark),
+            crossInk: pixels(100, 120, 30, 30, dark)
+        };
+        await preview.destroy();
+        await handle.destroy();
+        return result;
+    }, await fixture());
+    expect(result.secondLine).toBe(true);
+    expect(result.monospace).toBe(true);
+    for (const key of ['textInk', 'stampRed', 'highlightYellow', 'checkInk', 'crossInk']) expect(result[key], key).toBeGreaterThan(20);
+});
+
 test('interactive PDFs are rejected before reconstruction', async ({ page }) => {
     const document = await PDFDocument.create();
     const pdfPage = document.addPage();

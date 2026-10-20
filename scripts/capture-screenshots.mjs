@@ -21,6 +21,7 @@ const bundle = await build({
         plugin.onResolve({ filter: /^lightning\// }, (args) => ({ path: `${args.path}.js`, namespace: 'preview' }));
         plugin.onResolve({ filter: /^@salesforce\/apex\// }, (args) => ({ path: `apex/${args.path.split('.').at(-1)}.js`, namespace: 'preview' }));
         plugin.onResolve({ filter: /^@salesforce\/resourceUrl\// }, () => ({ path: 'resource.js', namespace: 'preview' }));
+        plugin.onResolve({ filter: /^@salesforce\/(user|schema)\// }, (args) => ({ path: `salesforce/${args.path.split('/').slice(1).join('-')}.js`, namespace: 'preview' }));
         plugin.onResolve({ filter: /^\.\//, namespace: 'preview' }, (args) => ({ path: path.posix.join(path.posix.dirname(args.importer), args.path), namespace: 'preview' }));
         plugin.onLoad({ filter: /.*/, namespace: 'preview' }, (args) => {
             const name = path.posix.basename(args.path).split('.')[0];
@@ -64,6 +65,7 @@ try {
     await page.goto(`http://127.0.0.1:${server.address().port}/`);
     const ready = async () => {
         await page.getByText('Traitement en cours…', { exact: true }).waitFor({ state: 'hidden' });
+        await page.getByText('Préparation de l’éditeur PDF…', { exact: true }).waitFor({ state: 'hidden' });
         await page.getByText('Préparation de l’aperçu…', { exact: true }).waitFor({ state: 'hidden' });
         await page.waitForFunction(() => document.fonts.status === 'loaded');
         const alerts = await page.getByRole('alert').allTextContents();
@@ -77,6 +79,9 @@ try {
     await (await initialChooser).setFiles({ name: 'Devis Atelier Horizon.pdf', mimeType: 'application/pdf', buffer: Buffer.from(pdf) });
     await page.getByRole('button', { name: 'Texte', exact: true }).waitFor();
     await ready();
+    // « Ajuster à la largeur » is the default; a fixed zoom keeps the documentation captures stable.
+    await page.getByLabel('Zoom', { exact: true }).selectOption('0.85');
+    await ready();
     await page.getByRole('button', { name: 'Texte', exact: true }).click();
     await page.getByRole('button', { name: 'Placer l’outil au centre' }).click();
     await ready();
@@ -86,7 +91,7 @@ try {
         await input.press('Tab');
         await ready();
     };
-    await commitInput('Texte (une ligne)', 'Bon pour accord');
+    await commitInput('Texte (10 lignes au plus)', 'Bon pour accord');
     await commitInput('Position X (pt PDF)', '42');
     await commitInput('Position Y (pt PDF)', '177');
     await page.screenshot({ path: path.join(output, '02-ajouter-du-texte.png'), fullPage: true });
@@ -129,9 +134,36 @@ try {
     await page.getByRole('button', { name: 'Texte', exact: true }).click();
     await page.getByRole('button', { name: 'Placer l’outil au centre' }).click();
     await ready();
-    await commitInput('Texte (une ligne)', 'Bon pour accord');
+    await commitInput('Texte (10 lignes au plus)', ['Bon pour accord', 'Le 20/10/2026'].join(String.fromCharCode(10)));
     await commitInput('Position X (pt PDF)', '42');
-    await commitInput('Position Y (pt PDF)', '177');
+    await commitInput('Position Y (pt PDF)', '170');
+    await page.getByLabel('Gras', { exact: true }).check();
+    await ready();
+    // Lot 1 tools: stamp, check mark, highlight and a signature drawn with the mouse.
+    const sheet = page.locator('canvas[aria-label="Aperçu du PDF modifié"]');
+    const placeAt = async (x, y) => { await sheet.click({ position: { x, y } }); await ready(); };
+    await page.getByRole('button', { name: 'Tampon ▾' }).click();
+    await page.getByRole('menuitem', { name: 'Lu et approuvé', exact: true }).click();
+    await placeAt(300, 520);
+    await page.getByRole('button', { name: 'Case ▾' }).click();
+    await page.getByRole('menuitem', { name: '✓ Coche', exact: true }).click();
+    await placeAt(14, 266);
+    await page.getByRole('button', { name: 'Surligner', exact: true }).click();
+    await placeAt(330, 382);
+    await page.getByRole('button', { name: 'Signature', exact: true }).click();
+    const pad = await page.locator('canvas[aria-label="Zone de signature"]').boundingBox();
+    const stroke = [[0.1, 0.6], [0.18, 0.3], [0.26, 0.72], [0.34, 0.35], [0.44, 0.66], [0.52, 0.38], [0.6, 0.58], [0.72, 0.44], [0.9, 0.52]];
+    await page.mouse.move(pad.x + pad.width * stroke[0][0], pad.y + pad.height * stroke[0][1]);
+    await page.mouse.down();
+    for (const [x, y] of stroke.slice(1)) await page.mouse.move(pad.x + pad.width * x, pad.y + pad.height * y, { steps: 6 });
+    await page.mouse.up();
+    await page.screenshot({ path: path.join(output, '05-signer.png'), fullPage: true });
+    await page.getByRole('button', { name: 'Utiliser cette signature', exact: true }).click();
+    await placeAt(300, 440);
+    for (const name of ['Tampon : Lu et approuvé', 'Coche', 'Surlignage', 'Signature']) {
+        if (await page.locator(`button.element[aria-label="${name}"]`).count() !== 1) throw new Error(`Missing addition: ${name}`);
+    }
+    await page.screenshot({ path: path.join(output, '06-tampons-et-cases.png'), fullPage: true });
     if (!await page.getByLabel('Nouvelle version du fichier').isChecked()) throw new Error('New version must be the default for a Salesforce file');
     await page.getByRole('button', { name: 'Enregistrer', exact: true }).click();
     await page.getByText('Nouvelle version enregistrée.', { exact: false }).waitFor();
@@ -139,6 +171,16 @@ try {
     const version = await page.evaluate(() => window.demoVersionRequest);
     if (!version?.payload?.startsWith('JVBERi0') || version.sourceVersionId !== 'demo-version') throw new Error('No new version was produced by the screenshot flow');
     await page.screenshot({ path: path.join(output, '04-enregistrer-une-copie.png'), fullPage: true });
+    await mkdir('.local', { recursive: true });
+    await page.evaluate(async (payload) => {
+        const bytes = Uint8Array.from(atob(payload), (char) => char.charCodeAt(0));
+        const canvas = document.createElement('canvas');
+        canvas.id = 'export-check';
+        document.body.appendChild(canvas);
+        await (await window.LovePdfEngine.open(bytes)).render(0, canvas, 0.85, 0);
+    }, version.payload);
+    await page.locator('#export-check').screenshot({ path: '.local/export-check.png' });
+    await page.evaluate(() => document.getElementById('export-check').remove());
     // Check the second native file-picker button and narrow desktop layouts too.
     const localChooserPromise = page.waitForEvent('filechooser');
     await page.getByRole('button', { name: 'Depuis mon ordinateur', exact: true }).click();
@@ -150,7 +192,7 @@ try {
         if (overflow) throw new Error(`The editor overflows the page at ${width}px`);
     }
     if (failures.length) throw new Error(failures.join('\n'));
-    console.log('Captured 4 screenshots from the actual LWC and PDF engine using local Salesforce adapters.');
+    console.log('Captured 6 screenshots from the actual LWC and PDF engine using local Salesforce adapters.');
 } catch (error) {
     await mkdir('.local', { recursive: true });
     await page?.screenshot({ path: '.local/screenshot-debug.png', fullPage: true });

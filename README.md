@@ -53,13 +53,25 @@ Cliquer sur **Texte**, puis sur la page ou sur **Placer l’outil au centre**. L
 
 ![Devis avec la mention Bon pour accord et le panneau de propriétés du texte](docs/screenshots/02-ajouter-du-texte.png)
 
-### 3. Ajouter une image
+### 3. Signer, tamponner, cocher
+
+**Signature** ouvre une zone de dessin : signer à la souris ou au doigt, puis **Utiliser cette signature** et cliquer sur la page. La signature reste disponible pendant la session (**Réutiliser ma signature**). Elle est ajoutée comme une image : ce n’est pas une signature électronique certifiée.
+
+![Zone de signature dessinée à la souris au-dessus du devis](docs/screenshots/05-signer.png)
+
+**Tampon** propose des mentions prêtes à l’emploi, encadrées en rouge : Bon pour accord, Lu et approuvé, Copie conforme, Payé, la date du jour, le nom de l’utilisateur connecté avec ou sans la date. Le texte d’un tampon reste modifiable. **Case** place une coche ✓ ou une croix ✗, **Surligner** une bande jaune translucide ; les deux se redimensionnent avec leur poignée. Le **Texte** accepte jusqu’à 10 lignes, en Helvetica, Times ou Courier, avec ou sans gras.
+
+![Devis avec texte sur deux lignes en gras, tampon, coche, surlignage et signature](docs/screenshots/06-tampons-et-cases.png)
+
+Raccourcis, hors des champs de saisie : **Ctrl+Z** annule, **Ctrl+Y** rétablit, **Suppr** supprime l’ajout sélectionné, **Échap** désélectionne et revient à l’outil Sélection. Le zoom **Ajuster à la largeur** est choisi par défaut.
+
+### 4. Ajouter une image
 
 Cliquer sur **Image**, sélectionner un PNG ou JPEG, puis le placer dans le document. Déplacer son cadre ou ajuster les coordonnées, la largeur et la hauteur dans **Propriétés**. L’exemple utilise un tampon fictif « VALIDÉ » et montre le choix d’un compteur comme destination après l’ouverture locale du PDF. Le cadre sélectionné se redimensionne avec sa poignée.
 
 ![Ajout d’un tampon image au devis avec réglage de sa position et de ses dimensions](docs/screenshots/03-ajouter-une-image.png)
 
-### 4. Enregistrer
+### 5. Enregistrer
 
 Cliquer sur **Enregistrer**. Pour un PDF venant de Salesforce, **Nouvelle version du fichier** est choisi par défaut : le fichier garde son nom et ses versions précédentes restent consultables dans Salesforce Files. **Nouveau fichier** crée un document séparé, nommé librement et lié à l’enregistrement ; c’est le seul choix pour un PDF de l’ordinateur. **Télécharger le PDF** récupère le résultat sans rien enregistrer dans Salesforce. **Voir le fichier** ouvre l’aperçu. La capture ci-dessous illustre une **sauvegarde simulée localement** ; aucun fichier n’est envoyé à Salesforce par la démonstration.
 
@@ -90,7 +102,9 @@ La validation actuelle porte sur le prototype en sandbox ; la recette de l’int
 - Rechercher un enregistrement en choisissant son objet, y compris les objets personnalisés éligibles.
 - Modifier puis télécharger un PDF local sans choisir d’enregistrement Salesforce.
 - Choisir la destination Salesforce après l’édition d’un PDF local en conservant les ajouts.
-- Ajouter une ligne de texte, modifier sa taille, sa couleur et sa position.
+- Ajouter du texte sur 10 lignes au plus, en 3 polices, gras ou non, et régler sa taille, sa couleur et sa position.
+- Signer à la main, apposer un tampon prêt à l’emploi (date du jour, nom de l’utilisateur…), cocher ✓/✗ et surligner.
+- Raccourcis Ctrl+Z, Ctrl+Y, Suppr et Échap ; zoom ajusté à la largeur.
 - Ajouter des images PNG/JPEG et régler leurs dimensions.
 - Ajouter un rectangle blanc de **masquage visuel**.
 - Sélectionner et déplacer les ajouts à la souris, au clavier ou avec leurs coordonnées.
@@ -100,7 +114,7 @@ La validation actuelle porte sur le prototype en sandbox ; la recette de l’int
 - Enregistrer une **nouvelle version** du fichier (par défaut) ou un **nouveau fichier** lié à l’enregistrement, avec réessai idempotent.
 - Redimensionner une image ou un masque à la souris.
 
-La page d’origine est affichée une seule fois et les ajouts sont dessinés en direct par-dessus : déplacer, redimensionner ou modifier un ajout ne reconstruit pas le PDF. Le PDF final est fabriqué au téléchargement ou à l’enregistrement ; les ajouts y sont orientés comme à l’écran, y compris sur une page pivotée. Les bibliothèques sont embarquées en Static Resource : aucun service PDF externe ni CDN n’est utilisé.
+La page d’origine est affichée une seule fois et les ajouts sont dessinés en direct par-dessus : déplacer, redimensionner ou modifier un ajout ne reconstruit pas le PDF. Le moteur PDF n’est chargé qu’à la première ouverture d’un PDF (il est préchargé au survol des boutons d’ouverture), pour ne pas ralentir les pages qui affichent l’éditeur. Le PDF final est fabriqué au téléchargement ou à l’enregistrement ; les ajouts y sont orientés comme à l’écran, y compris sur une page pivotée. Les bibliothèques sont embarquées en Static Resource : aucun service PDF externe ni CDN n’est utilisé.
 
 ## Limites du prototype
 
@@ -109,7 +123,7 @@ La page d’origine est affichée une seule fois et les ajouts sont dessinés en
 - Le masquage blanc ne supprime pas les informations sous-jacentes. Il ne permet pas de caviarder des données confidentielles.
 - Les PDF chiffrés, avec signature/champ de signature ou formulaires interactifs sont refusés avant édition.
 - Les PDF contenant des liens ou des commentaires s’ouvrent, mais ces liens et commentaires ne sont pas repris dans la copie ; un message le signale à l’ouverture.
-- Ajout de texte latin en Helvetica, une ligne de 200 caractères au maximum. Pas d’édition du texte d’origine, d’OCR, de fusion ni de réorganisation des pages dans cette version.
+- Texte latin (Helvetica, Times ou Courier), 10 lignes de 200 caractères au maximum. La signature dessinée est une image, sans valeur de signature électronique. Pas d’édition du texte d’origine, d’OCR, de fusion ni de réorganisation des pages dans cette version.
 - Les ajouts restent éditables pendant la session. Après fermeture, ils sont intégrés au contenu du PDF ; le projet d’édition n’est pas conservé.
 - Le moteur PDF.js fonctionne dans le thread principal pour éviter les workers et imports dynamiques sous LWS. Cela reste à qualifier en interface Lightning dans l’org cible.
 - Les messages internes du moteur sont copiés en JavaScript dans son contexte LWS, sans transfert de buffers ni modification des API globales. Les tests navigateur couvrent le moteur natif et la bibliothèque officielle de sandbox LWS ; la recette dans une page Lightning réelle reste nécessaire.

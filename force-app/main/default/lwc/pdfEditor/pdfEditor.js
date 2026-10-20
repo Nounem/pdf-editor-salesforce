@@ -1,7 +1,10 @@
-import { LightningElement, api } from 'lwc';
+import { LightningElement, api, wire } from 'lwc';
 import { loadScript } from 'lightning/platformResourceLoader';
 import LightningConfirm from 'lightning/confirm';
 import { NavigationMixin } from 'lightning/navigation';
+import { getRecord, getFieldValue } from 'lightning/uiRecordApi';
+import USER_ID from '@salesforce/user/Id';
+import USER_NAME from '@salesforce/schema/User.Name';
 import engineResource from '@salesforce/resourceUrl/lovePdfEngine';
 import listRecordPdfs from '@salesforce/apex/PdfEditorController.listRecordPdfs';
 import loadSmallPdf from '@salesforce/apex/PdfEditorController.loadSmallPdf';
@@ -12,6 +15,19 @@ import { MAX_BYTES, MAX_IMAGE_BYTES, MAX_IMAGE_PIXELS, createState, createHistor
 const BUSY_MESSAGE = 'Attendez la fin du traitement avant de changer d’enregistrement.';
 const ENGINE_MESSAGE = 'Impossible de charger le moteur PDF. Vérifiez avec votre administrateur que Lightning Web Security (LWS) est activé, puis réessayez le chargement.';
 const MIN_RESIZE_PIXELS = 8;
+// Shared with the PDF engine (scripts/engine-entry.js): keep both sides in sync.
+const STAMP_PADDING = 0.4;
+const STAMP_HEIGHT = 1.5;
+const FONT_FAMILIES = {
+    Helvetica: 'Helvetica, Arial, sans-serif',
+    Times: '"Times New Roman", Times, serif',
+    Courier: '"Courier New", Courier, monospace'
+};
+// Same marks as the engine, in a 100 × 100 SVG box with y pointing down.
+const MARK_PATHS = { check: 'M15 50 L40 75 L85 20', cross: 'M20 20 L80 80 M20 80 L80 20' };
+const RESIZABLE = new Set(['image', 'mask', 'highlight', 'check']);
+const KEEP_RATIO = new Set(['image', 'check']);
+const EDITABLE_TARGETS = /^(INPUT|TEXTAREA|SELECT|LIGHTNING-INPUT|LIGHTNING-TEXTAREA|LIGHTNING-COMBOBOX)$/;
 
 export default class PdfEditor extends NavigationMixin(LightningElement) {
     @api recordId;
@@ -21,6 +37,7 @@ export default class PdfEditor extends NavigationMixin(LightningElement) {
     filesFailed = false;
     busy = false;
     rendering = false;
+    painting = false;
     message = '';
     success = '';
     notice = '';
@@ -29,6 +46,7 @@ export default class PdfEditor extends NavigationMixin(LightningElement) {
     history;
     pageIndex = 0;
     zoom = 0.85;
+    zoomChoice = 'fit';
     tool = 'select';
     selectedId;
     title = '';
@@ -41,6 +59,13 @@ export default class PdfEditor extends NavigationMixin(LightningElement) {
     engine;
     assets = new Map();
     pendingImage;
+    pendingStamp = '';
+    pendingMark = 'check';
+    showSignaturePad = false;
+    hasInk = false;
+    inkBounds;
+    signing = false;
+    savedSignature;
     savedSnapshot = '';
     savedTitle = '';
     saveRequestId;
@@ -51,15 +76,25 @@ export default class PdfEditor extends NavigationMixin(LightningElement) {
     renderedRevision = -1;
     renderedKey;
     renderTimer;
+    resizeTimer;
     disconnected = false;
     drag;
     beforeUnload = (event) => {
         if (this.dirty) { event.preventDefault(); event.returnValue = ''; }
     };
+    windowResize = () => {
+        if (this.zoomChoice !== 'fit' || !this.history) return;
+        clearTimeout(this.resizeTimer);
+        this.resizeTimer = setTimeout(() => this.scheduleRender(), 200);
+    };
+
+    @wire(getRecord, { recordId: USER_ID, fields: [USER_NAME] }) user;
+    get userName() { return this.user?.data ? getFieldValue(this.user.data, USER_NAME) : ''; }
 
     connectedCallback() {
         this.disconnected = false;
         window.addEventListener('beforeunload', this.beforeUnload);
+        window.addEventListener('resize', this.windowResize);
     }
 
     renderedCallback() {
@@ -70,7 +105,9 @@ export default class PdfEditor extends NavigationMixin(LightningElement) {
     disconnectedCallback() {
         this.disconnected = true;
         clearTimeout(this.renderTimer);
+        clearTimeout(this.resizeTimer);
         window.removeEventListener('beforeunload', this.beforeUnload);
+        window.removeEventListener('resize', this.windowResize);
         this.sourceHandle?.destroy();
         this.assets.clear();
         this.sourceBytes = null;
@@ -143,7 +180,21 @@ export default class PdfEditor extends NavigationMixin(LightningElement) {
     get page() { return this.history?.present.pages[this.pageIndex]; }
     get selected() { return this.page?.elements.find((element) => element.id === this.selectedId); }
     get selectedIsText() { return this.selected?.type === 'text'; }
-    get selectedHasSize() { return this.selected && this.selected.type !== 'text'; }
+    get selectedIsStamp() { return this.selected?.type === 'stamp'; }
+    get selectedIsCheck() { return this.selected?.type === 'check'; }
+    get selectedHasFont() { return this.selectedIsText || this.selectedIsStamp; }
+    get selectedHasSize() { return ['image', 'mask', 'highlight'].includes(this.selected?.type); }
+    // Positions and sizes are shown to one decimal; the model keeps full precision.
+    get selectedView() {
+        const round = (value) => Math.round(value * 10) / 10;
+        const { x = 0, y = 0, width = 0, height = 0 } = this.selected || {};
+        return { x: round(x), y: round(y), width: round(width), height: round(height) };
+    }
+    get selectedFont() { return this.selected?.font || 'Helvetica'; }
+    get selectedBold() { return Boolean(this.selected?.bold); }
+    get fontOptions() {
+        return [{ label: 'Helvetica (sans empattement)', value: 'Helvetica' }, { label: 'Times (avec empattement)', value: 'Times' }, { label: 'Courier (chasse fixe)', value: 'Courier' }];
+    }
     get pageLabel() { return `Page ${this.pageIndex + 1} sur ${this.history?.present.pages.length || 0}`; }
     get zoomLabel() { return `${Math.round(this.zoom * 100)} %`; }
     get stageStyle() { return this.viewport ? `width:${this.viewport.width}px;height:${this.viewport.height}px;` : ''; }
@@ -160,17 +211,39 @@ export default class PdfEditor extends NavigationMixin(LightningElement) {
         if (this.dirty) return 'Modifications non enregistrées';
         return this.savedDocumentId ? 'Enregistré' : 'Aucune modification';
     }
-    get selectVariant() { return this.tool === 'select' ? 'brand' : 'neutral'; }
+    get selectVariant() { return this.tool === 'select' && !this.showSignaturePad ? 'brand' : 'neutral'; }
     get textVariant() { return this.tool === 'text' ? 'brand' : 'neutral'; }
     get maskVariant() { return this.tool === 'mask' ? 'brand' : 'neutral'; }
+    get highlightVariant() { return this.tool === 'highlight' ? 'brand' : 'neutral'; }
+    get signatureVariant() { return this.showSignaturePad || this.pendingImage?.kind === 'signature' ? 'brand' : 'neutral'; }
+    get stampOptions() {
+        const today = new Date().toLocaleDateString('fr-FR');
+        const labels = ['Bon pour accord', 'Lu et approuvé', 'Copie conforme', 'Payé', `Le ${today}`];
+        if (this.userName) labels.push(this.userName, `${this.userName} — ${today}`);
+        return labels.map((label) => ({ label, value: label }));
+    }
     get placementHint() {
-        if (this.pendingImage) return 'Cliquez sur la page pour placer votre image.';
-        if (this.tool === 'text') return 'Cliquez sur la page pour ajouter une ligne de texte.';
+        if (this.showSignaturePad) return 'Dessinez votre signature, puis cliquez sur « Utiliser cette signature ».';
+        if (this.pendingImage) return this.pendingImage.kind === 'signature' ? 'Cliquez sur la page pour placer votre signature.' : 'Cliquez sur la page pour placer votre image.';
+        if (this.tool === 'text') return 'Cliquez sur la page pour ajouter du texte.';
+        if (this.tool === 'stamp') return `Cliquez sur la page pour apposer le tampon « ${this.pendingStamp} ».`;
+        if (this.tool === 'check') return 'Cliquez sur la page pour placer la case.';
+        if (this.tool === 'highlight') return 'Cliquez sur la page pour surligner une zone, puis ajustez sa taille.';
         if (this.tool === 'mask') return 'Cliquez sur la page pour masquer une zone. Le contenu reste récupérable.';
         return 'Sélectionnez un ajout pour le déplacer, le redimensionner ou modifier ses propriétés.';
     }
     get pageRotation() { return this.viewport?.rotation || 0; }
+    get signatureEmpty() { return !this.hasInk; }
     toScreen = (x, y) => this.viewport.convertToViewportPoint(x, y);
+
+    describe(item) {
+        if (item.type === 'text') return `Texte : ${item.text.split('\n')[0]}`;
+        if (item.type === 'stamp') return `Tampon : ${item.text}`;
+        if (item.type === 'image') return item.kind === 'signature' ? 'Signature' : 'Image ajoutée';
+        if (item.type === 'check') return item.mark === 'cross' ? 'Croix' : 'Coche';
+        if (item.type === 'highlight') return 'Surlignage';
+        return 'Masquage visuel';
+    }
 
     // Additions are drawn live over the original page; the PDF is only built on download or save.
     get overlays() {
@@ -180,17 +253,29 @@ export default class PdfEditor extends NavigationMixin(LightningElement) {
             const box = screenBox(item, this.toScreen);
             const selected = item.id === this.selectedId;
             const color = /^#[0-9a-f]{6}$/i.test(item.color) ? item.color : '#000000';
+            const size = (item.fontSize || 0) * this.zoom;
+            let textStyle = '';
+            if (item.type === 'text') {
+                textStyle = `font-size:${size}px;color:${color};font-family:${FONT_FAMILIES[item.font] || FONT_FAMILIES.Helvetica};font-weight:${item.bold ? 700 : 400};`;
+            } else if (item.type === 'stamp') {
+                textStyle = `font-size:${size}px;color:${color};border:${Math.max(1, item.fontSize * 0.1) * this.zoom}px solid ${color};`;
+            }
             return {
                 id: item.id,
-                label: item.type === 'text' ? `Texte : ${item.text}` : item.type === 'image' ? 'Image ajoutée' : 'Masquage visuel',
+                label: this.describe(item),
                 style: `left:${box.left}px;top:${box.top}px;width:${Math.max(16, box.width)}px;height:${Math.max(16, box.height)}px;`,
                 contentStyle: `width:${item.width * this.zoom}px;height:${item.height * this.zoom}px;transform:translate(-50%,-50%) rotate(${visualAngle(this.pageRotation, item.rotation)}deg);`,
-                textStyle: item.type === 'text' ? `font-size:${item.fontSize * this.zoom}px;color:${color};` : '',
+                textStyle,
                 text: item.text,
                 imageUrl: this.assets.get(item.assetId)?.url,
+                checkPath: MARK_PATHS[item.mark] || MARK_PATHS.check,
+                checkStyle: `stroke:${color};`,
                 isText: item.type === 'text',
+                isStamp: item.type === 'stamp',
                 isImage: item.type === 'image',
-                resizable: selected && item.type !== 'text',
+                isCheck: item.type === 'check',
+                isHighlight: item.type === 'highlight',
+                resizable: selected && RESIZABLE.has(item.type),
                 className: selected ? 'element selected' : 'element',
                 pressed: selected
             };
@@ -271,7 +356,7 @@ export default class PdfEditor extends NavigationMixin(LightningElement) {
                 this.viewport = null;
                 this.renderedKey = null;
                 this.assets.clear();
-                this.pendingImage = null;
+                this.resetTool();
                 this.selectedId = null;
                 this.drag = null;
                 this.notice = '';
@@ -319,11 +404,10 @@ export default class PdfEditor extends NavigationMixin(LightningElement) {
         this.history = createHistory(createState(handle.pageCount));
         this.assets = new Map();
         this.selectedId = null;
-        this.pendingImage = null;
+        this.resetTool();
         this.pageIndex = 0;
         this.viewport = null;
         this.renderedKey = null;
-        this.tool = 'select';
         // A freshly opened document has no unsaved changes.
         this.savedSnapshot = JSON.stringify(this.history.present);
         this.savedTitle = this.title;
@@ -342,21 +426,33 @@ export default class PdfEditor extends NavigationMixin(LightningElement) {
         }, 0);
     }
 
+    // Fits the page to the available width, between 40 % and 200 %.
+    async fitZoom() {
+        const available = (this.template.querySelector('.canvas-scroll')?.clientWidth || 0) - 32;
+        if (available <= 0 || !this.sourceHandle.viewport) return this.zoom;
+        const base = await this.sourceHandle.viewport(this.page.sourceIndex, 1, this.page.rotation);
+        return Math.min(2, Math.max(0.4, Math.floor((available / base.width) * 100) / 100));
+    }
+
     // Renders the original page only. Additions are HTML overlays, so most edits need no render.
     async renderPage() {
-        const canvas = this.template.querySelector('canvas');
+        const canvas = this.template.querySelector('.page-canvas');
         if (!canvas || !this.sourceHandle || !this.page || this.rendering || this.disconnected) return;
         const revision = this.renderRevision;
-        const key = `${this.page.sourceIndex}:${this.page.rotation}:${this.zoom}`;
-        if (key === this.renderedKey) { this.renderedRevision = revision; return; }
         this.rendering = true;
         try {
-            this.viewport = await this.sourceHandle.render(this.page.sourceIndex, canvas, this.zoom, this.page.rotation);
-            this.renderedKey = key;
+            if (this.zoomChoice === 'fit') this.zoom = await this.fitZoom();
+            const key = `${this.page.sourceIndex}:${this.page.rotation}:${this.zoom}`;
+            if (key !== this.renderedKey) {
+                this.painting = true;
+                this.viewport = await this.sourceHandle.render(this.page.sourceIndex, canvas, this.zoom, this.page.rotation);
+                this.renderedKey = key;
+            }
         } catch (error) { this.fail(error); }
         finally {
             this.renderedRevision = revision;
             this.rendering = false;
+            this.painting = false;
             if (!this.disconnected && revision !== this.renderRevision) {
                 this.renderTimer = setTimeout(() => this.renderPage(), 0);
             }
@@ -375,14 +471,29 @@ export default class PdfEditor extends NavigationMixin(LightningElement) {
         } catch (error) { this.fail(error); }
     }
 
-    handleTool(event) { this.tool = event.currentTarget.dataset.tool; this.pendingImage = null; }
+    resetTool() {
+        this.tool = 'select';
+        this.pendingImage = null;
+        this.showSignaturePad = false;
+    }
+
+    handleTool(event) { this.resetTool(); this.tool = event.currentTarget.dataset.tool; }
+    handleStampSelect(event) { this.resetTool(); this.pendingStamp = event.detail.value; this.tool = 'stamp'; }
+    handleCheckSelect(event) { this.resetTool(); this.pendingMark = event.detail.value; this.tool = 'check'; }
     handleSaveMode(event) { this.saveMode = event.detail.value; this.saveRequestId = null; this.savedDocumentId = null; this.success = ''; }
     handleTitle(event) { this.title = event.target.value; this.saveRequestId = null; this.success = ''; }
     handlePrevious() { if (!this.previousDisabled) { this.pageIndex -= 1; this.selectedId = null; this.scheduleRender(); } }
     handleNext() { if (!this.nextDisabled) { this.pageIndex += 1; this.selectedId = null; this.scheduleRender(); } }
-    handleZoom(event) { this.zoom = Number(event.detail.value); this.scheduleRender(); }
-    get zoomOptions() { return [{ label: '60 %', value: '0.6' }, { label: '85 %', value: '0.85' }, { label: '100 %', value: '1' }, { label: '125 %', value: '1.25' }]; }
-    get zoomValue() { return String(this.zoom); }
+    handleZoom(event) {
+        this.zoomChoice = event.detail.value;
+        if (this.zoomChoice !== 'fit') this.zoom = Number(this.zoomChoice);
+        this.scheduleRender();
+    }
+    get zoomOptions() {
+        return [{ label: 'Ajuster à la largeur', value: 'fit' }, { label: '60 %', value: '0.6' }, { label: '85 %', value: '0.85' },
+            { label: '100 %', value: '1' }, { label: '125 %', value: '1.25' }, { label: '150 %', value: '1.5' }];
+    }
+    get zoomValue() { return this.zoomChoice; }
     handleUndo() { if (!this.undoDisabled) { this.history = undo(this.history); this.afterHistory(); } }
     handleRedo() { if (!this.redoDisabled) { this.history = redo(this.history); this.afterHistory(); } }
     afterHistory() {
@@ -393,6 +504,18 @@ export default class PdfEditor extends NavigationMixin(LightningElement) {
         this.message = '';
         this.scheduleRender();
     }
+
+    // Ctrl+Z / Ctrl+Y / Suppr / Échap anywhere in the editor, except while typing in a field.
+    handleShortcut(event) {
+        if (event.defaultPrevented || !this.hasDocument || this.disabled || EDITABLE_TARGETS.test(event.target.tagName)) return;
+        const key = event.key.toLowerCase();
+        const command = event.ctrlKey || event.metaKey;
+        if (command && key === 'z' && !event.shiftKey) { event.preventDefault(); this.handleUndo(); }
+        else if (command && (key === 'y' || (key === 'z' && event.shiftKey))) { event.preventDefault(); this.handleRedo(); }
+        else if ((key === 'delete' || key === 'backspace') && this.selected) { event.preventDefault(); this.handleRemove(); }
+        else if (key === 'escape') { this.resetTool(); this.selectedId = null; }
+    }
+
     handleRotate() { this.change({ type: 'rotate', pageId: this.page.id }); }
     async handleDeletePage() {
         if (this.deletePageDisabled) return;
@@ -414,11 +537,94 @@ export default class PdfEditor extends NavigationMixin(LightningElement) {
             const { width, height } = bitmap;
             bitmap.close();
             if (width * height > MAX_IMAGE_PIXELS) throw new Error('L’image dépasse 8 millions de pixels.');
+            this.resetTool();
             this.pendingImage = { bytes, mime: file.type, width, height, url: `data:${file.type};base64,${toBase64(bytes)}` };
             this.tool = 'image';
             this.message = '';
         } catch (error) { this.fail(error); }
         finally { this.busy = false; }
+    }
+
+    // Signature pad: drawn on a canvas, cropped to the ink, then placed as a PNG image.
+    handleSignature() {
+        if (this.disabled) return;
+        this.resetTool();
+        this.showSignaturePad = true;
+        this.hasInk = false;
+        this.inkBounds = null;
+    }
+    signatureContext() {
+        const canvas = this.template.querySelector('.signature-canvas');
+        const context = canvas?.getContext('2d');
+        if (!context) return null;
+        context.lineWidth = 5;
+        context.lineCap = 'round';
+        context.lineJoin = 'round';
+        context.strokeStyle = '#1b2a4a';
+        return context;
+    }
+    signaturePoint(event) {
+        const canvas = event.currentTarget;
+        const bounds = canvas.getBoundingClientRect();
+        return { x: (event.clientX - bounds.left) * (canvas.width / bounds.width), y: (event.clientY - bounds.top) * (canvas.height / bounds.height) };
+    }
+    extendInk({ x, y }) {
+        const bounds = this.inkBounds || { minX: x, minY: y, maxX: x, maxY: y };
+        this.inkBounds = { minX: Math.min(bounds.minX, x), minY: Math.min(bounds.minY, y), maxX: Math.max(bounds.maxX, x), maxY: Math.max(bounds.maxY, y) };
+        if (!this.hasInk) this.hasInk = true;
+    }
+    handleSignStart(event) {
+        const context = this.signatureContext();
+        if (!context || event.button !== 0) return;
+        event.currentTarget.setPointerCapture?.(event.pointerId);
+        const point = this.signaturePoint(event);
+        this.signing = true;
+        context.beginPath();
+        context.moveTo(point.x, point.y);
+        context.lineTo(point.x + 0.1, point.y);
+        context.stroke();
+        this.extendInk(point);
+    }
+    handleSignMove(event) {
+        if (!this.signing) return;
+        const context = this.signatureContext();
+        const point = this.signaturePoint(event);
+        context.lineTo(point.x, point.y);
+        context.stroke();
+        this.extendInk(point);
+    }
+    handleSignEnd() { this.signing = false; }
+    handleSignClear() {
+        const canvas = this.template.querySelector('.signature-canvas');
+        canvas?.getContext('2d')?.clearRect(0, 0, canvas.width, canvas.height);
+        this.hasInk = false;
+        this.inkBounds = null;
+    }
+    handleSignCancel() { this.resetTool(); }
+    handleSignReuse() { this.placeSignature(this.savedSignature); }
+    handleSignUse() {
+        if (!this.hasInk) return;
+        try {
+            const source = this.template.querySelector('.signature-canvas');
+            const margin = 8;
+            const left = Math.max(0, Math.floor(this.inkBounds.minX - margin));
+            const top = Math.max(0, Math.floor(this.inkBounds.minY - margin));
+            const width = Math.min(source.width, Math.ceil(this.inkBounds.maxX + margin)) - left;
+            const height = Math.min(source.height, Math.ceil(this.inkBounds.maxY + margin)) - top;
+            const cropped = document.createElement('canvas');
+            cropped.width = width;
+            cropped.height = height;
+            cropped.getContext('2d').drawImage(source, left, top, width, height, 0, 0, width, height);
+            const url = cropped.toDataURL('image/png');
+            // Kept for the session so the next signature is one click away.
+            this.savedSignature = { bytes: fromBase64(url.split(',')[1]), mime: 'image/png', width, height, url, kind: 'signature' };
+            this.placeSignature(this.savedSignature);
+        } catch (error) { this.fail(error); }
+    }
+    placeSignature(signature) {
+        this.resetTool();
+        this.pendingImage = signature;
+        this.tool = 'image';
     }
 
     handleStageClick(event) {
@@ -446,6 +652,17 @@ export default class PdfEditor extends NavigationMixin(LightningElement) {
         return { x: element.x + dx, y: element.y + dy };
     }
 
+    // Text and stamps take their size from their content.
+    metricsFor(element) {
+        if (element.type === 'text') return this.sourceHandle.measure(element.text, element.fontSize, { font: element.font, bold: element.bold });
+        if (element.type === 'stamp') {
+            if (!element.text.trim() || element.text.includes('\n') || element.text.length > 60) throw new Error('Un tampon tient sur une ligne de 60 caractères maximum.');
+            const { width } = this.sourceHandle.measure(element.text, element.fontSize, { bold: true });
+            return { width: width + 2 * STAMP_PADDING * element.fontSize, height: STAMP_HEIGHT * element.fontSize };
+        }
+        return {};
+    }
+
     addAt(left, top) {
         try {
             const id = crypto.randomUUID();
@@ -454,20 +671,27 @@ export default class PdfEditor extends NavigationMixin(LightningElement) {
             const base = { id, x, y, rotation: this.pageRotation };
             let element;
             if (this.tool === 'text') {
-                const metrics = this.sourceHandle.measure('Votre texte', 16);
-                element = { ...base, type: 'text', text: 'Votre texte', fontSize: 16, color: '#182c37', ...metrics };
+                element = { ...base, type: 'text', text: 'Votre texte', fontSize: 16, color: '#182c37', font: 'Helvetica', bold: false };
+            } else if (this.tool === 'stamp') {
+                element = { ...base, type: 'stamp', text: this.pendingStamp, fontSize: 14, color: '#c23934' };
+            } else if (this.tool === 'check') {
+                element = { ...base, type: 'check', mark: this.pendingMark, width: 18, height: 18, color: '#182c37' };
+            } else if (this.tool === 'highlight') {
+                element = { ...base, type: 'highlight', width: 140, height: 16 };
             } else if (this.tool === 'mask') {
                 element = { ...base, type: 'mask', width: 140, height: 32 };
             } else if (this.pendingImage) {
-                this.assets.set(id, this.pendingImage);
-                element = { ...base, type: 'image', assetId: id, width: 160, height: 160 * this.pendingImage.height / this.pendingImage.width };
-                this.pendingImage = null;
+                const image = this.pendingImage;
+                const width = image.kind === 'signature' ? 150 : 160;
+                this.assets.set(id, image);
+                element = { ...base, type: 'image', assetId: id, kind: image.kind, width, height: width * image.height / image.width };
             }
             if (!element) return;
+            Object.assign(element, this.metricsFor(element));
             Object.assign(element, this.alignTopLeft(element, left, top));
             this.change({ type: 'add', pageId: this.page.id, element });
             this.selectedId = id;
-            this.tool = 'select';
+            this.resetTool();
         } catch (error) { this.fail(error); }
     }
 
@@ -476,12 +700,14 @@ export default class PdfEditor extends NavigationMixin(LightningElement) {
         if (!this.selected || this.disabled) return;
         try {
             const key = event.target.dataset.property;
-            let value = event.target.value;
+            let value = event.target.type === 'checkbox' ? event.target.checked : (event.detail?.value ?? event.target.value);
+            if (key === 'text') value = String(value).replace(/\r\n?/g, '\n');
             if (key === 'fontSize') value = boundedNumber(value, 6, 96);
             if (key === 'x' || key === 'y') value = boundedNumber(value, -10000, 10000);
             if (key === 'width' || key === 'height') value = boundedNumber(value, 1, 2000);
-            const patch = { [key]: value };
-            if (this.selected.type === 'text') Object.assign(patch, this.sourceHandle.measure(patch.text ?? this.selected.text, patch.fontSize ?? this.selected.fontSize));
+            if (key !== 'size' && value === this.selected[key]) return;
+            const patch = key === 'size' ? { width: boundedNumber(value, 6, 200), height: boundedNumber(value, 6, 200) } : { [key]: value };
+            Object.assign(patch, this.metricsFor({ ...this.selected, ...patch }));
             this.change({ type: 'update', pageId: this.page.id, elementId: this.selectedId, patch });
         } catch (error) { this.fail(error); }
     }
@@ -543,7 +769,7 @@ export default class PdfEditor extends NavigationMixin(LightningElement) {
         const { original, box } = this.drag;
         let screenWidth = Math.max(MIN_RESIZE_PIXELS, box.width + dx);
         let screenHeight = Math.max(MIN_RESIZE_PIXELS, box.height + dy);
-        if (original.type === 'image') {
+        if (KEEP_RATIO.has(original.type)) {
             const factor = Math.max(screenWidth / box.width, screenHeight / box.height);
             screenWidth = box.width * factor;
             screenHeight = box.height * factor;
