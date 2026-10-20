@@ -5,6 +5,7 @@ import listRecordPdfs from '@salesforce/apex/PdfEditorController.listRecordPdfs'
 import loadSmallPdf from '@salesforce/apex/PdfEditorController.loadSmallPdf';
 import saveCopy from '@salesforce/apex/PdfEditorController.saveCopy';
 import saveNewVersion from '@salesforce/apex/PdfEditorController.saveNewVersion';
+import listRecordFields from '@salesforce/apex/PdfEditorController.listRecordFields';
 import LightningConfirm from 'lightning/confirm';
 
 jest.mock('lightning/platformResourceLoader', () => ({ loadScript: jest.fn() }), { virtual: true });
@@ -12,6 +13,7 @@ jest.mock('@salesforce/apex/PdfEditorController.listRecordPdfs', () => ({ defaul
 jest.mock('@salesforce/apex/PdfEditorController.loadSmallPdf', () => ({ default: jest.fn() }), { virtual: true });
 jest.mock('@salesforce/apex/PdfEditorController.saveCopy', () => ({ default: jest.fn() }), { virtual: true });
 jest.mock('@salesforce/apex/PdfEditorController.saveNewVersion', () => ({ default: jest.fn() }), { virtual: true });
+jest.mock('@salesforce/apex/PdfEditorController.listRecordFields', () => ({ default: jest.fn() }), { virtual: true });
 jest.mock('lightning/confirm', () => ({ __esModule: true, default: { open: jest.fn() } }), { virtual: true });
 
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
@@ -26,7 +28,12 @@ beforeEach(() => {
     let counter = 0;
     global.crypto.randomUUID = jest.fn(() => `00000000-0000-0000-0000-${String(++counter).padStart(12, '0')}`);
 });
-afterEach(() => { while (document.body.firstChild) document.body.removeChild(document.body.firstChild); jest.clearAllMocks(); });
+afterEach(() => {
+    while (document.body.firstChild) document.body.removeChild(document.body.firstChild);
+    // Drafts are kept in the browser: never let one test's draft leak into the next.
+    window.localStorage.clear();
+    jest.clearAllMocks();
+});
 
 const button = (element, label) => [...element.shadowRoot.querySelectorAll('lightning-button')].find((item) => item.label === label);
 async function addElement(element, tool = 'Texte') {
@@ -372,4 +379,89 @@ it('fits the page to the width by default', async () => {
     const zoom = [...element.shadowRoot.querySelectorAll('lightning-combobox')].find((item) => item.label === 'Zoom');
     expect(zoom.value).toBe('fit');
     expect(zoom.options[0]).toEqual({ label: 'Ajuster à la largeur', value: 'fit' });
+});
+
+it('inserts a formatted value of the record', async () => {
+    listRecordFields.mockResolvedValue([{ label: 'Nom du compte', value: 'Capitole SAS' }, { label: 'Montant', value: '1 700,00 EUR' }]);
+    const element = await mountAndOpen();
+    const handle = await window.LovePdfEngine.open.mock.results[0].value;
+    handle.measure = jest.fn(() => ({ width: 60, height: 9 }));
+    const menu = element.shadowRoot.querySelector('.field-menu');
+    menu.dispatchEvent(new CustomEvent('open')); await flush(); await flush();
+    expect(listRecordFields).toHaveBeenCalledWith({ recordId: '001record' });
+    expect([...menu.querySelectorAll('lightning-menu-item')].map((item) => item.label)).toEqual(['Nom du compte : Capitole SAS', 'Montant : 1 700,00 EUR']);
+    menu.dispatchEvent(new CustomEvent('open')); await flush();
+    expect(listRecordFields).toHaveBeenCalledTimes(1);
+    menu.dispatchEvent(new CustomEvent('select', { detail: { value: '1' } })); await flush();
+    expect(element.shadowRoot.querySelector('.placement-hint').textContent).toContain('« Montant »');
+    button(element, 'Placer l’outil au centre').click(); await flush(); await flush();
+    expect(element.shadowRoot.querySelector('.text-content').textContent).toBe('1 700,00 EUR');
+    expect(handle.measure).toHaveBeenCalledWith('1 700,00 EUR', 11, { font: 'Helvetica', bold: false });
+});
+
+async function mountWithPages(count) {
+    window.LovePdfEngine.open.mockImplementationOnce(async () => ({ ...makeHandle(), pageCount: count }));
+    return mountAndOpen();
+}
+const pageLabel = (element) => element.shadowRoot.querySelector('.page-panel strong').textContent;
+const iconButton = (element, label) => [...element.shadowRoot.querySelectorAll('lightning-button-icon')].find((item) => item.alternativeText === label);
+
+it('moves a page and extracts it as a separate PDF', async () => {
+    const element = await mountWithPages(3);
+    iconButton(element, 'Déplacer la page après').click(); await flush(); await flush();
+    expect(pageLabel(element)).toBe('Page 2 sur 3');
+    expect(iconButton(element, 'Déplacer la page avant').disabled).toBe(false);
+    URL.createObjectURL = jest.fn(() => 'blob:page');
+    URL.revokeObjectURL = jest.fn();
+    const click = jest.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+    button(element, 'Extraire cette page').click(); await flush(); await flush();
+    const [sources, state] = window.LovePdfEngine.exportPdf.mock.calls[0];
+    expect(sources).toHaveLength(1);
+    expect(state.pages.map((page) => page.id)).toEqual(['page-0']);
+    expect(element.shadowRoot.querySelector('.download-link').download).toBe('Contrat — copie - page 2.pdf');
+    click.mockRestore();
+});
+
+it('appends another PDF and saves both as one document', async () => {
+    saveNewVersion.mockResolvedValue({ documentId: '069source', versionId: '068next' });
+    const element = await mountAndOpen();
+    window.LovePdfEngine.open.mockImplementationOnce(async () => ({ ...makeHandle(), pageCount: 2 }));
+    const input = element.shadowRoot.querySelector('.merge-file');
+    Object.defineProperty(input, 'files', { value: [{ name: 'annexe.pdf', size: 8, arrayBuffer: async () => new Uint8Array([37, 80, 68, 70]).buffer }] });
+    input.dispatchEvent(new CustomEvent('change'));
+    await flush(); await flush(); await flush();
+    expect(pageLabel(element)).toBe('Page 2 sur 3');
+    expect(element.shadowRoot.querySelector('.success').textContent).toContain('2 pages ajoutées');
+    const merged = await window.LovePdfEngine.open.mock.results[1].value;
+    expect(merged.render).toHaveBeenLastCalledWith(0, expect.anything(), 0.85, 0);
+    button(element, 'Enregistrer').click(); await flush(); await flush();
+    const [sources, state] = window.LovePdfEngine.exportPdf.mock.calls[0];
+    expect(sources).toHaveLength(2);
+    expect(state.pages.map((page) => page.source)).toEqual([0, 1, 1]);
+});
+
+it('keeps unsaved edits as a draft and offers them when the file is reopened', async () => {
+    let element = await mountAndOpen();
+    await addElement(element);
+    document.body.removeChild(element);
+    expect(window.localStorage.getItem('lovepdf-draft:salesforce:068source')).toContain('Votre texte');
+    element = await mountAndOpen();
+    expect(element.shadowRoot.querySelector('.draft-notice').textContent).toContain('Un brouillon non enregistré');
+    expect(element.shadowRoot.querySelectorAll('.element')).toHaveLength(0);
+    button(element, 'Reprendre le brouillon').click(); await flush(); await flush();
+    expect(element.shadowRoot.querySelectorAll('.element')).toHaveLength(1);
+    expect(element.shadowRoot.querySelector('.document-status').textContent).toContain('brouillon conservé sur ce poste');
+    saveNewVersion.mockResolvedValue({ documentId: '069source', versionId: '068next' });
+    button(element, 'Enregistrer').click(); await flush(); await flush();
+    expect(window.localStorage.getItem('lovepdf-draft:salesforce:068source')).toBeNull();
+});
+
+it('drops a draft the user chooses to ignore', async () => {
+    let element = await mountAndOpen();
+    await addElement(element);
+    document.body.removeChild(element);
+    element = await mountAndOpen();
+    button(element, 'Ignorer').click(); await flush();
+    expect(element.shadowRoot.querySelector('.draft-notice')).toBeNull();
+    expect(window.localStorage.getItem('lovepdf-draft:salesforce:068source')).toBeNull();
 });

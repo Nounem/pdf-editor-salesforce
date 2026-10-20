@@ -54,6 +54,7 @@ canvas { display: block; }
 .highlight-content { display: block; width: 100%; height: 100%; background: rgba(255, 222, 0, 0.4); }
 .image-content { display: block; width: 100%; height: 100%; }
 .editor:focus { outline: none; }
+.notice-actions { display: flex; flex-wrap: wrap; gap: var(--slds-g-spacing-2, 0.5rem); }
 .signature-pad { margin: 0 var(--slds-g-spacing-4, 1rem) var(--slds-g-spacing-3, 0.75rem); padding: var(--slds-g-spacing-3, 0.75rem); background: var(--pdf-surface); border: 1px solid var(--pdf-border); border-radius: var(--slds-g-radius-border-2, 0.25rem); }
 .signature-title { margin-bottom: var(--slds-g-spacing-2, 0.5rem); }
 /* The paper stays white whatever the org theme, like the PDF page. */

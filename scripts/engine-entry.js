@@ -81,12 +81,20 @@ function point(viewport, x, y) {
     return viewport.convertToPdfPoint(x, y);
 }
 
+// `source` is the opened PDF, or an array of PDFs when others were appended to it:
+// each page refers to its PDF by `source` (0 when absent) and to its page by `sourceIndex`.
 async function exportPdf(source, state, assets) {
-    const original = await inspect(source);
+    const sources = Array.isArray(source) ? source : [source];
     if (!state.pages.length || state.pages.length > MAX_PAGES) throw new Error('Nombre de pages invalide.');
-    // Page reconstruction cannot preserve links and comments reliably: they are
-    // dropped from the copy, and the editor tells the user when it opens the file.
-    for (const page of original.getPages()) page.node.delete(PDFName.of('Annots'));
+    const originals = [];
+    for (const bytes of sources) {
+        const document = await inspect(bytes);
+        // Page reconstruction cannot preserve links and comments reliably: they are
+        // dropped from the copy, and the editor tells the user when it opens the file.
+        for (const page of document.getPages()) page.node.delete(PDFName.of('Annots'));
+        originals.push(document);
+    }
+    const original = originals[0];
     const output = await PDFDocument.create();
     // Stable bytes are required when retrying an idempotent save after a lost response.
     output.setCreationDate(original.getCreationDate() || new Date(0));
@@ -94,7 +102,9 @@ async function exportPdf(source, state, assets) {
     const font = fontCache(output);
     const imageCache = new Map();
     for (const item of state.pages) {
-        const [page] = await output.copyPages(original, [item.sourceIndex]);
+        const from = originals[item.source || 0];
+        if (!from || item.sourceIndex >= from.getPageCount()) throw new Error('Page source introuvable.');
+        const [page] = await output.copyPages(from, [item.sourceIndex]);
         output.addPage(page);
         page.setRotation(degrees((page.getRotation().angle + item.rotation) % 360));
         for (const element of item.elements) {

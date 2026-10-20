@@ -36,6 +36,28 @@ private class PdfEditorControllerTest {
     }
 
     @IsTest
+    static void listsFormattedRecordValuesIncludingRelatedNames() {
+        // Accounts avoid org-specific opportunity validation rules; a child account exercises lookups.
+        Account parent = [SELECT Id FROM Account LIMIT 1];
+        Account child = new Account(Name = 'Filiale LovePdf', ParentId = parent.Id, AnnualRevenue = 1700, Phone = '0102030405');
+        insert child;
+        Test.startTest();
+        List<PdfEditorController.FieldValue> values = PdfEditorController.listRecordFields(child.Id);
+        Test.stopTest();
+        Set<String> found = new Set<String>();
+        Boolean amountFound = false;
+        for (PdfEditorController.FieldValue item : values) {
+            System.assert(String.isNotBlank(item.label) && String.isNotBlank(item.value), 'Only labelled, non-empty values');
+            found.add(item.value);
+            if (item.value.endsWith(' ' + UserInfo.getDefaultCurrency())) amountFound = true;
+        }
+        System.assertEquals('Filiale LovePdf', values[0].value, 'The record name comes first');
+        System.assert(found.contains('LovePdf test'), 'The parent account name is offered for the lookup');
+        System.assert(found.contains('0102030405'), 'Phone numbers are offered');
+        System.assert(amountFound, 'Currency amounts are shown with their currency');
+    }
+
+    @IsTest
     static void loadsAndCreatesOnlyOneCopyOnRetry() {
         Account account = [SELECT Id FROM Account LIMIT 1];
         Test.startTest();

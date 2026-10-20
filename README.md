@@ -23,7 +23,7 @@ Le déploiement crée l’action **Modifier un PDF** (`Opportunity.Modifier_un_P
 
 Le bouton ouvre l’onglet **Éditeur PDF** en pleine largeur, déjà positionné sur l’opportunité, avec la liste de ses PDF. **Ouvrir l’enregistrement** ramène à l’opportunité.
 
-La recherche permet de choisir l’objet directement dans la page : **opportunité (présélectionnée), compte, contact, offre/devis, compteur et autres objets personnalisés éligibles**. Les libellés proviennent de Salesforce ; les choix tiennent compte des droits de lecture de l’utilisateur. Les objets personnalisés doivent disposer d’un champ `Name` lisible, et le [sélecteur d’enregistrements Lightning](https://developer.salesforce.com/docs/platform/lightning-component-reference/guide/lightning-record-picker) doit prendre en charge l’objet. Les objets de configuration et le journal interne sont exclus. Un objet non pris en charge affiche un message, sans bloquer l’ouverture locale.
+La recherche permet de choisir l’objet directement dans la page : **opportunité (présélectionnée), compte, contact, offre/devis, contrat, commande, contrat de service, compteur et autres objets personnalisés éligibles**. Les libellés proviennent de Salesforce ; les choix tiennent compte des droits de lecture de l’utilisateur. Les objets personnalisés doivent disposer d’un champ `Name` lisible, et le [sélecteur d’enregistrements Lightning](https://developer.salesforce.com/docs/platform/lightning-component-reference/guide/lightning-record-picker) doit prendre en charge l’objet. Les objets de configuration et le journal interne sont exclus. Un objet non pris en charge affiche un message, sans bloquer l’ouverture locale.
 
 Le choix d’un enregistrement est **facultatif pour modifier et télécharger un PDF local**. Il est nécessaire pour enregistrer dans Salesforce. Vous pouvez le choisir après avoir commencé l’édition : les modifications du PDF local sont conservées.
 
@@ -65,13 +65,23 @@ Cliquer sur **Texte**, puis sur la page ou sur **Placer l’outil au centre**. L
 
 Raccourcis, hors des champs de saisie : **Ctrl+Z** annule, **Ctrl+Y** rétablit, **Suppr** supprime l’ajout sélectionné, **Échap** désélectionne et revient à l’outil Sélection. Le zoom **Ajuster à la largeur** est choisi par défaut.
 
-### 4. Ajouter une image
+### 4. Champs de l’enregistrement et pages
+
+**Champ** (visible quand un enregistrement est choisi) liste les valeurs renseignées de l’enregistrement, mises en forme comme dans Salesforce : nom, montant avec sa devise, dates, listes de sélection traduites, et nom des enregistrements liés (par exemple le compte d’une opportunité). Choisir une valeur puis cliquer sur la page l’insère comme un texte modifiable. Seuls les champs lisibles par l’utilisateur sont proposés.
+
+Dans le panneau **Document** : les flèches déplacent la page affichée, **Extraire cette page** télécharge cette page seule avec ses ajouts, **Ajouter un PDF** ajoute les pages d’un autre PDF de l’ordinateur à la fin (20 pages au total). Le tout est enregistré comme un seul document.
+
+![Document de 4 pages après l’ajout d’un second PDF, avec le menu Champ et les actions sur les pages](docs/screenshots/07-pages-et-champs.png)
+
+**Brouillon :** les modifications non enregistrées sont conservées dans ce navigateur, sur ce poste uniquement. En rouvrant le même fichier, l’éditeur propose **Reprendre le brouillon** ou **Ignorer**. Le brouillon est effacé après l’enregistrement et au bout de 7 jours. Un document auquel un autre PDF a été ajouté n’est pas conservé en brouillon.
+
+### 5. Ajouter une image
 
 Cliquer sur **Image**, sélectionner un PNG ou JPEG, puis le placer dans le document. Déplacer son cadre ou ajuster les coordonnées, la largeur et la hauteur dans **Propriétés**. L’exemple utilise un tampon fictif « VALIDÉ » et montre le choix d’un compteur comme destination après l’ouverture locale du PDF. Le cadre sélectionné se redimensionne avec sa poignée.
 
 ![Ajout d’un tampon image au devis avec réglage de sa position et de ses dimensions](docs/screenshots/03-ajouter-une-image.png)
 
-### 5. Enregistrer
+### 6. Enregistrer
 
 Cliquer sur **Enregistrer**. Pour un PDF venant de Salesforce, **Nouvelle version du fichier** est choisi par défaut : le fichier garde son nom et ses versions précédentes restent consultables dans Salesforce Files. **Nouveau fichier** crée un document séparé, nommé librement et lié à l’enregistrement ; c’est le seul choix pour un PDF de l’ordinateur. **Télécharger le PDF** récupère le résultat sans rien enregistrer dans Salesforce. **Voir le fichier** ouvre l’aperçu. La capture ci-dessous illustre une **sauvegarde simulée localement** ; aucun fichier n’est envoyé à Salesforce par la démonstration.
 
@@ -105,11 +115,14 @@ La validation actuelle porte sur le prototype en sandbox ; la recette de l’int
 - Ajouter du texte sur 10 lignes au plus, en 3 polices, gras ou non, et régler sa taille, sa couleur et sa position.
 - Signer à la main, apposer un tampon prêt à l’emploi (date du jour, nom de l’utilisateur…), cocher ✓/✗ et surligner.
 - Raccourcis Ctrl+Z, Ctrl+Y, Suppr et Échap ; zoom ajusté à la largeur.
+- Insérer les valeurs de l’enregistrement (nom du compte, montant, dates…).
+- Déplacer et extraire une page, ajouter les pages d’un autre PDF.
+- Brouillon conservé sur le poste et proposé à la réouverture du fichier.
 - Ajouter des images PNG/JPEG et régler leurs dimensions.
 - Ajouter un rectangle blanc de **masquage visuel**.
 - Sélectionner et déplacer les ajouts à la souris, au clavier ou avec leurs coordonnées.
 - Supprimer un ajout, annuler/rétablir les 50 dernières commandes.
-- Parcourir, tourner et retirer des pages.
+- Parcourir, tourner, déplacer, extraire et retirer des pages.
 - Ouvrir l’éditeur depuis une opportunité avec le bouton **Modifier un PDF**.
 - Enregistrer une **nouvelle version** du fichier (par défaut) ou un **nouveau fichier** lié à l’enregistrement, avec réessai idempotent.
 - Redimensionner une image ou un masque à la souris.

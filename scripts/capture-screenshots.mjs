@@ -181,6 +181,23 @@ try {
     }, version.payload);
     await page.locator('#export-check').screenshot({ path: '.local/export-check.png' });
     await page.evaluate(() => document.getElementById('export-check').remove());
+    // Lot 2: insert a record value, append another PDF, extract a page.
+    await page.getByRole('button', { name: 'Champ ▾' }).click();
+    await page.getByRole('menuitem', { name: 'Montant : 1 700,00 EUR', exact: true }).click();
+    await placeAt(300, 300);
+    if (await page.locator('button.element[aria-label="Texte : 1 700,00 EUR"]').count() !== 1) throw new Error('The record value was not inserted');
+    const mergeChooser = page.waitForEvent('filechooser');
+    await page.getByRole('button', { name: 'Ajouter un PDF', exact: true }).click();
+    await (await mergeChooser).setFiles({ name: 'annexe.pdf', mimeType: 'application/pdf', buffer: Buffer.from(pdf) });
+    await ready();
+    const merged = await page.locator('.page-panel strong').textContent();
+    if (merged !== 'Page 3 sur 4') throw new Error(`Unexpected page after merging: ${merged}`);
+    await page.screenshot({ path: path.join(output, '07-pages-et-champs.png'), fullPage: true });
+    const extractPromise = page.waitForEvent('download');
+    await page.getByRole('button', { name: 'Extraire cette page', exact: true }).click();
+    const extracted = await extractPromise;
+    if (!extracted.suggestedFilename().endsWith(' - page 3.pdf')) throw new Error(`Unexpected extract name: ${extracted.suggestedFilename()}`);
+    await ready();
     // Check the second native file-picker button and narrow desktop layouts too.
     const localChooserPromise = page.waitForEvent('filechooser');
     await page.getByRole('button', { name: 'Depuis mon ordinateur', exact: true }).click();
@@ -192,7 +209,7 @@ try {
         if (overflow) throw new Error(`The editor overflows the page at ${width}px`);
     }
     if (failures.length) throw new Error(failures.join('\n'));
-    console.log('Captured 6 screenshots from the actual LWC and PDF engine using local Salesforce adapters.');
+    console.log('Captured 7 screenshots from the actual LWC and PDF engine using local Salesforce adapters.');
 } catch (error) {
     await mkdir('.local', { recursive: true });
     await page?.screenshot({ path: '.local/screenshot-debug.png', fullPage: true });

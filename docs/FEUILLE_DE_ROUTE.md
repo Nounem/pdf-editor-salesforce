@@ -44,10 +44,10 @@ Décisions du 19 octobre 2026 : **« Nouvelle version du fichier » par défaut*
 
 ## Lot 2 — Gain de temps
 
-- [ ] Champs automatiques de l’enregistrement (nom du compte, n° de contrat…)
-- [ ] Réorganiser, extraire, fusionner des pages
-- [ ] Brouillon conservé sur le poste
-- [ ] Objets Contrat, Commande et objets métier Capitole Énergie
+- [x] Champs de l’enregistrement à insérer (valeurs formatées, noms des enregistrements liés)
+- [x] Déplacer et extraire une page, ajouter les pages d’un autre PDF
+- [x] Brouillon conservé sur le poste (7 jours, effacé après enregistrement)
+- [x] Objets Contrat, Commande, Contrat de service (les objets personnalisés étaient déjà proposés)
 
 ## Lot 3 — Plus tard
 

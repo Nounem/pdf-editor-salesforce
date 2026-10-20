@@ -43,6 +43,17 @@ test('cannot reuse element identifiers or exceed page envelope', () => {
     assert.throws(() => createState(0), /20 pages/);
 });
 
+test('pages can be moved and PDFs appended within the page limit, with undo', () => {
+    let history = createHistory(createState(3));
+    history = commit(history, { type: 'movePage', pageId: 'page-2', offset: -2 });
+    assert.deepEqual(history.present.pages.map((page) => page.id), ['page-2', 'page-0', 'page-1']);
+    assert.throws(() => applyChange(history.present, { type: 'movePage', pageId: 'page-2', offset: -1 }), /plus loin/);
+    history = commit(history, { type: 'appendPages', pages: createState(2, 1).pages });
+    assert.deepEqual(history.present.pages.slice(3).map((page) => [page.id, page.source, page.sourceIndex]), [['page-1-0', 1, 0], ['page-1-1', 1, 1]]);
+    assert.throws(() => applyChange(history.present, { type: 'appendPages', pages: createState(16, 2).pages }), /20 pages au total/);
+    assert.equal(undo(history).present.pages.length, 3);
+});
+
 test('binary round trip handles zero bytes and non-ASCII values without argument overflow', () => {
     const bytes = Uint8Array.from({ length: 1000000 }, (_, i) => i % 256);
     assert.deepEqual(fromBase64(toBase64(bytes)), bytes);

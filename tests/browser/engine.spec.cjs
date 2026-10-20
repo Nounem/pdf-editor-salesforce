@@ -154,6 +154,22 @@ test('exports multi-line text in three fonts, stamps, highlights and check marks
     for (const key of ['textInk', 'stampRed', 'highlightYellow', 'checkInk', 'crossInk']) expect(result[key], key).toBeGreaterThan(20);
 });
 
+test('merges pages from two PDFs in the chosen order', async ({ page }) => {
+    await openEnginePage(page);
+    const second = await PDFDocument.create();
+    second.addPage([200, 200]);
+    const output = await page.evaluate(async ([first, other]) => {
+        const state = { pages: [
+            { id: 'b', source: 1, sourceIndex: 0, rotation: 0, elements: [] },
+            { id: 'a', sourceIndex: 1, rotation: 0, elements: [] },
+            { id: 'c', source: 0, sourceIndex: 0, rotation: 0, elements: [] }
+        ] };
+        return Array.from(await window.LovePdfEngine.exportPdf([new Uint8Array(first), new Uint8Array(other)], state, new Map()));
+    }, [await fixture(), Array.from(await second.save())]);
+    const merged = await PDFDocument.load(new Uint8Array(output));
+    expect(merged.getPages().map((item) => item.getSize().width)).toEqual([200, 300, 400]);
+});
+
 test('interactive PDFs are rejected before reconstruction', async ({ page }) => {
     const document = await PDFDocument.create();
     const pdfPage = document.addPage();

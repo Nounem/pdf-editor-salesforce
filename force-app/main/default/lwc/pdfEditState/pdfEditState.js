@@ -4,13 +4,14 @@ export const MAX_ELEMENTS = 100;
 export const MAX_IMAGE_BYTES = 500000;
 export const MAX_IMAGE_PIXELS = 8000000;
 
-export function createState(pageCount) {
+// Source 0 is the opened PDF; higher numbers are PDFs appended to it.
+export function createState(pageCount, source = 0) {
     if (!Number.isInteger(pageCount) || pageCount < 1 || pageCount > MAX_PAGES) {
         throw new Error(`Le PDF doit contenir de 1 à ${MAX_PAGES} pages.`);
     }
     return {
         pages: Array.from({ length: pageCount }, (_, index) => ({
-            id: `page-${index}`, sourceIndex: index, rotation: 0, elements: []
+            id: source ? `page-${source}-${index}` : `page-${index}`, source, sourceIndex: index, rotation: 0, elements: []
         }))
     };
 }
@@ -22,6 +23,12 @@ export function copyState(state) {
 // Keep commands independent from LWC and PDF engines so they can be tested.
 export function applyChange(state, change) {
     const next = copyState(state);
+    if (change.type === 'appendPages') {
+        if (next.pages.length + change.pages.length > MAX_PAGES) throw new Error(`Le document est limité à ${MAX_PAGES} pages au total.`);
+        if (change.pages.some((added) => next.pages.some((item) => item.id === added.id))) throw new Error('Identifiant déjà utilisé.');
+        next.pages.push(...copyState({ pages: change.pages }).pages);
+        return next;
+    }
     const page = next.pages.find((item) => item.id === change.pageId);
     if (!page) throw new Error('Page introuvable.');
     switch (change.type) {
@@ -50,6 +57,14 @@ export function applyChange(state, change) {
             if (next.pages.length === 1) throw new Error('Conservez au moins une page.');
             next.pages = next.pages.filter((item) => item.id !== page.id);
             break;
+        case 'movePage': {
+            const from = next.pages.indexOf(page);
+            const to = from + change.offset;
+            if (to < 0 || to >= next.pages.length) throw new Error('Cette page ne peut pas aller plus loin.');
+            next.pages.splice(from, 1);
+            next.pages.splice(to, 0, page);
+            break;
+        }
         default:
             throw new Error('Commande inconnue.');
     }

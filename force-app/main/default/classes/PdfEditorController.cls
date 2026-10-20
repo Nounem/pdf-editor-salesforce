@@ -15,7 +15,7 @@ public with sharing class PdfEditorController {
     public static List<ObjectChoice> listRecordObjects() {
         Set<String> standardObjects = new Set<String>{
             'account', 'contact', 'opportunity', 'lead', 'quote',
-            'asset', 'campaign', 'product2', 'pricebook2'
+            'asset', 'campaign', 'product2', 'pricebook2', 'contract', 'order', 'servicecontract'
         };
         Map<String, Schema.SObjectType> types = Schema.getGlobalDescribe();
         List<ObjectChoice> result = new List<ObjectChoice>();
@@ -31,6 +31,108 @@ public with sharing class PdfEditorController {
             result.add(new ObjectChoice(description));
         }
         return result;
+    }
+
+    public class FieldValue implements Comparable {
+        @AuraEnabled public String label;
+        @AuraEnabled public String value;
+        public FieldValue(String label, String value) {
+            this.label = label;
+            this.value = value;
+        }
+        public Integer compareTo(Object other) {
+            return label.compareTo(((FieldValue) other).label);
+        }
+    }
+
+    private static final Integer MAX_FIELDS = 80;
+    private static final Set<String> SKIPPED_FIELDS = new Set<String>{
+        'systemmodstamp', 'lastvieweddate', 'lastreferenceddate', 'lastactivitydate', 'lastmodifieddate', 'isdeleted'
+    };
+    private static final Set<Schema.DisplayType> VALUE_TYPES = new Set<Schema.DisplayType>{
+        Schema.DisplayType.STRING, Schema.DisplayType.TEXTAREA, Schema.DisplayType.PICKLIST, Schema.DisplayType.MULTIPICKLIST,
+        Schema.DisplayType.COMBOBOX, Schema.DisplayType.EMAIL, Schema.DisplayType.PHONE, Schema.DisplayType.URL,
+        Schema.DisplayType.DATE, Schema.DisplayType.DATETIME, Schema.DisplayType.CURRENCY, Schema.DisplayType.DOUBLE,
+        Schema.DisplayType.INTEGER, Schema.DisplayType.LONG, Schema.DisplayType.PERCENT
+    };
+
+    // Readable, non-empty values of the record, formatted for the user, to insert into a PDF.
+    // Lookups give the related record's name (for example the account of an opportunity).
+    @AuraEnabled
+    public static List<FieldValue> listRecordFields(Id recordId) {
+        requireRecord(recordId);
+        Schema.DescribeSObjectResult description = recordId.getSObjectType().getDescribe();
+        Map<String, String> labels = new Map<String, String>();
+        Map<String, Schema.DisplayType> types = new Map<String, Schema.DisplayType>();
+        List<String> columns = new List<String>();
+        for (Schema.SObjectField field : description.fields.getMap().values()) {
+            if (columns.size() >= MAX_FIELDS) break;
+            Schema.DescribeFieldResult info = field.getDescribe();
+            if (!info.isAccessible() || SKIPPED_FIELDS.contains(info.getName().toLowerCase()) || info.isHtmlFormatted()) continue;
+            Schema.DisplayType type = info.getType();
+            if (type == Schema.DisplayType.REFERENCE) {
+                String path = relatedName(info);
+                if (path == null) continue;
+                // « Owner ID » reads « Owner »: the value shown is the related record's name.
+                labels.put(path, info.getLabel().removeEndIgnoreCase(' ID'));
+                types.put(path, Schema.DisplayType.STRING);
+                columns.add(path);
+            } else if (VALUE_TYPES.contains(type) && (type != Schema.DisplayType.TEXTAREA || info.getLength() <= 1000)) {
+                String name = info.getName();
+                labels.put(name, info.getLabel());
+                types.put(name, type);
+                // Picklists are read in the user's language rather than as API values.
+                columns.add(type == Schema.DisplayType.PICKLIST || type == Schema.DisplayType.MULTIPICKLIST ? 'toLabel(' + name + ')' : name);
+            }
+        }
+        List<FieldValue> result = new List<FieldValue>();
+        if (columns.isEmpty()) return result;
+        Boolean multiCurrency = description.fields.getMap().containsKey('CurrencyIsoCode');
+        if (multiCurrency) columns.add('CurrencyIsoCode');
+        SObject record = Database.queryWithBinds(
+            'SELECT ' + String.join(columns, ', ') + ' FROM ' + description.getName() + ' WHERE Id = :target LIMIT 1',
+            new Map<String, Object>{ 'target' => recordId }, AccessLevel.USER_MODE
+        )[0];
+        String currencyCode = multiCurrency ? (String) record.get('CurrencyIsoCode') : UserInfo.getDefaultCurrency();
+        FieldValue nameValue;
+        for (String path : labels.keySet()) {
+            Object raw;
+            if (path.contains('.')) {
+                SObject parent = record.getSObject(path.substringBefore('.'));
+                raw = parent == null ? null : parent.get('Name');
+            } else {
+                raw = record.get(path);
+            }
+            String value = format(raw, types.get(path), currencyCode);
+            if (String.isBlank(value)) continue;
+            FieldValue item = new FieldValue(labels.get(path), value);
+            if (path == 'Name') nameValue = item; else result.add(item);
+        }
+        result.sort();
+        if (nameValue != null) result.add(0, nameValue);
+        return result;
+    }
+
+    private static String relatedName(Schema.DescribeFieldResult info) {
+        String relationship = info.getRelationshipName();
+        List<Schema.SObjectType> targets = info.getReferenceTo();
+        if (relationship == null || targets.isEmpty()) return null;
+        Schema.DescribeSObjectResult target = targets[0].getDescribe(SObjectDescribeOptions.DEFERRED);
+        if (!target.isAccessible()) return null;
+        Schema.SObjectField nameField = target.fields.getMap().get('Name');
+        if (nameField == null) return null;
+        Schema.DescribeFieldResult nameInfo = nameField.getDescribe();
+        return nameInfo.isAccessible() && nameInfo.isNameField() ? relationship + '.Name' : null;
+    }
+
+    private static String format(Object value, Schema.DisplayType type, String currencyCode) {
+        if (value == null) return null;
+        if (value instanceof Date) return ((Date) value).format();
+        if (value instanceof Datetime) return ((Datetime) value).format();
+        if (type == Schema.DisplayType.CURRENCY) return ((Decimal) value).setScale(2).format() + ' ' + currencyCode;
+        if (type == Schema.DisplayType.PERCENT) return ((Decimal) value).format() + ' %';
+        if (value instanceof Decimal) return ((Decimal) value).format();
+        return String.valueOf(value);
     }
 
     public class FileInfo {

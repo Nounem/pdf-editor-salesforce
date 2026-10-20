@@ -10,7 +10,8 @@ import listRecordPdfs from '@salesforce/apex/PdfEditorController.listRecordPdfs'
 import loadSmallPdf from '@salesforce/apex/PdfEditorController.loadSmallPdf';
 import saveCopy from '@salesforce/apex/PdfEditorController.saveCopy';
 import saveNewVersion from '@salesforce/apex/PdfEditorController.saveNewVersion';
-import { MAX_BYTES, MAX_IMAGE_BYTES, MAX_IMAGE_PIXELS, createState, createHistory, commit, undo, redo, fromBase64, toBase64, boundedNumber, screenBox, visualAngle } from 'c/pdfEditState';
+import listRecordFields from '@salesforce/apex/PdfEditorController.listRecordFields';
+import { MAX_BYTES, MAX_IMAGE_BYTES, MAX_IMAGE_PIXELS, createState, createHistory, copyState, commit, undo, redo, fromBase64, toBase64, boundedNumber, screenBox, visualAngle } from 'c/pdfEditState';
 
 const BUSY_MESSAGE = 'Attendez la fin du traitement avant de changer d’enregistrement.';
 const ENGINE_MESSAGE = 'Impossible de charger le moteur PDF. Vérifiez avec votre administrateur que Lightning Web Security (LWS) est activé, puis réessayez le chargement.';
@@ -28,6 +29,8 @@ const MARK_PATHS = { check: 'M15 50 L40 75 L85 20', cross: 'M20 20 L80 80 M20 80
 const RESIZABLE = new Set(['image', 'mask', 'highlight', 'check']);
 const KEEP_RATIO = new Set(['image', 'check']);
 const EDITABLE_TARGETS = /^(INPUT|TEXTAREA|SELECT|LIGHTNING-INPUT|LIGHTNING-TEXTAREA|LIGHTNING-COMBOBOX)$/;
+const DRAFT_PREFIX = 'lovepdf-draft:';
+const DRAFT_DAYS = 7;
 
 export default class PdfEditor extends NavigationMixin(LightningElement) {
     @api recordId;
@@ -55,6 +58,17 @@ export default class PdfEditor extends NavigationMixin(LightningElement) {
     saveMode = 'copy';
     sourceBytes;
     sourceHandle;
+    // PDFs appended to the opened one: { bytes, handle }, referenced by pages as source 1, 2…
+    extraSources = [];
+    recordFields = [];
+    fieldsRecordId;
+    loadingFields = false;
+    pendingText = '';
+    pendingLabel = '';
+    draftKey;
+    pendingDraft;
+    draftTimer;
+    draftKept = false;
     viewport;
     engine;
     assets = new Map();
@@ -108,9 +122,18 @@ export default class PdfEditor extends NavigationMixin(LightningElement) {
         clearTimeout(this.resizeTimer);
         window.removeEventListener('beforeunload', this.beforeUnload);
         window.removeEventListener('resize', this.windowResize);
+        this.storeDraft();
         this.sourceHandle?.destroy();
+        this.releaseExtraSources();
         this.assets.clear();
         this.sourceBytes = null;
+    }
+
+    handleFor(source) { return source ? this.extraSources[source - 1]?.handle : this.sourceHandle; }
+    allSourceBytes() { return [this.sourceBytes, ...this.extraSources.map((item) => item.bytes)]; }
+    releaseExtraSources() {
+        for (const item of this.extraSources) item.handle?.destroy();
+        this.extraSources = [];
     }
 
     // The 2 MB engine takes seconds to start under LWS: load it only when a PDF is about to be
@@ -208,7 +231,7 @@ export default class PdfEditor extends NavigationMixin(LightningElement) {
     }
     get versionHint() { return `« ${this.sourceTitle} » recevra une nouvelle version. Les versions précédentes restent disponibles dans Salesforce Files.`; }
     get status() {
-        if (this.dirty) return 'Modifications non enregistrées';
+        if (this.dirty) return this.draftKept ? 'Modifications non enregistrées · brouillon conservé sur ce poste' : 'Modifications non enregistrées';
         return this.savedDocumentId ? 'Enregistré' : 'Aucune modification';
     }
     get selectVariant() { return this.tool === 'select' && !this.showSignaturePad ? 'brand' : 'neutral'; }
@@ -225,7 +248,7 @@ export default class PdfEditor extends NavigationMixin(LightningElement) {
     get placementHint() {
         if (this.showSignaturePad) return 'Dessinez votre signature, puis cliquez sur « Utiliser cette signature ».';
         if (this.pendingImage) return this.pendingImage.kind === 'signature' ? 'Cliquez sur la page pour placer votre signature.' : 'Cliquez sur la page pour placer votre image.';
-        if (this.tool === 'text') return 'Cliquez sur la page pour ajouter du texte.';
+        if (this.tool === 'text') return this.pendingText ? `Cliquez sur la page pour insérer « ${this.pendingLabel} ».` : 'Cliquez sur la page pour ajouter du texte.';
         if (this.tool === 'stamp') return `Cliquez sur la page pour apposer le tampon « ${this.pendingStamp} ».`;
         if (this.tool === 'check') return 'Cliquez sur la page pour placer la case.';
         if (this.tool === 'highlight') return 'Cliquez sur la page pour surligner une zone, puis ajustez sa taille.';
@@ -348,7 +371,11 @@ export default class PdfEditor extends NavigationMixin(LightningElement) {
             if (linkedDocument) {
                 // A Salesforce source belongs to its original record. Never silently relink it.
                 clearTimeout(this.renderTimer);
+                this.storeDraft();
                 await this.sourceHandle?.destroy();
+                this.releaseExtraSources();
+                this.pendingDraft = null;
+                this.draftKey = null;
                 this.sourceHandle = null;
                 this.sourceBytes = null;
                 this.sourceVersionId = null;
@@ -371,17 +398,23 @@ export default class PdfEditor extends NavigationMixin(LightningElement) {
         } finally { this.busy = false; }
     }
 
-    async handleDownload() {
+    get downloadBaseName() { return (this.title.trim() || 'Document').replace(/[\\/]/g, '_').replace(/\.pdf$/i, ''); }
+
+    handleDownload() { return this.download(this.history?.present, `${this.downloadBaseName}.pdf`); }
+    // One page, with its additions, as a separate PDF.
+    handleExtractPage() { return this.download({ pages: [this.page] }, `${this.downloadBaseName} - page ${this.pageIndex + 1}.pdf`); }
+
+    async download(state, fileName) {
         if (this.disabled || !this.hasDocument) return;
         this.busy = true;
         this.message = '';
         let url;
         try {
-            const bytes = await this.engine.exportPdf(this.sourceBytes, this.history.present, this.assets);
+            const bytes = await this.engine.exportPdf(this.allSourceBytes(), state, this.assets);
             url = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
             const link = this.template.querySelector('.download-link');
             link.href = url;
-            link.download = `${(this.title.trim() || 'Document').replace(/[\\/]/g, '_').replace(/\.pdf$/i, '')}.pdf`;
+            link.download = fileName;
             link.click();
             link.removeAttribute('href');
         } catch (error) { this.fail(error); }
@@ -391,9 +424,56 @@ export default class PdfEditor extends NavigationMixin(LightningElement) {
         }
     }
 
+    handleMovePage(event) {
+        const offset = Number(event.currentTarget.dataset.offset);
+        if (this.disabled || (offset < 0 ? this.moveBeforeDisabled : this.moveAfterDisabled)) return;
+        this.change({ type: 'movePage', pageId: this.page.id, offset });
+        this.pageIndex += offset;
+        this.selectedId = null;
+    }
+    get moveBeforeDisabled() { return this.disabled || this.pageIndex === 0; }
+    get moveAfterDisabled() { return this.nextDisabled; }
+
+    handleChooseMerge() {
+        if (!this.disabled) this.template.querySelector('.merge-file').click();
+    }
+
+    // Appends the pages of another PDF; the result is saved as one document.
+    async handleMergeFile(event) {
+        const file = event.target.files?.[0];
+        event.target.value = '';
+        if (!file || this.disabled || !this.hasDocument) return;
+        this.busy = true;
+        this.message = '';
+        let handle;
+        try {
+            if (file.size > MAX_BYTES) throw new Error('Le fichier ajouté dépasse 1 Mo.');
+            const bytes = new Uint8Array(await file.arrayBuffer());
+            handle = await this.engine.open(bytes);
+            const source = this.extraSources.length + 1;
+            const { pages } = createState(handle.pageCount, source);
+            const firstAdded = this.history.present.pages.length;
+            this.history = commit(this.history, { type: 'appendPages', pages });
+            this.extraSources = [...this.extraSources, { bytes, handle }];
+            handle = null;
+            this.pageIndex = firstAdded;
+            this.selectedId = null;
+            this.saveRequestId = null;
+            this.savedDocumentId = null;
+            this.success = `${pages.length} page${pages.length > 1 ? 's' : ''} ajoutée${pages.length > 1 ? 's' : ''} à la fin du document.`;
+            this.scheduleRender();
+        } catch (error) { this.fail(error); }
+        finally {
+            handle?.destroy();
+            this.busy = false;
+        }
+    }
+
     async openBytes(bytes, name, sourceVersionId, recordId) {
         const handle = await this.engine.open(bytes);
+        this.storeDraft();
         await this.sourceHandle?.destroy();
+        this.releaseExtraSources();
         this.sourceHandle = handle;
         this.sourceBytes = bytes;
         this.sourceVersionId = sourceVersionId;
@@ -415,7 +495,91 @@ export default class PdfEditor extends NavigationMixin(LightningElement) {
         this.notice = handle.annotations ? 'Les liens et commentaires de ce PDF ne seront pas repris dans la copie.' : '';
         this.saveRequestId = null;
         this.savedDocumentId = null;
+        this.draftKey = DRAFT_PREFIX + (sourceVersionId ? `salesforce:${sourceVersionId}` : `local:${name}:${bytes.length}`);
+        this.pendingDraft = this.readDraft(this.draftKey);
+        this.draftKept = false;
         this.scheduleRender();
+    }
+
+    // Drafts: unsaved edits are kept in this browser for a week, then offered when the same file is reopened.
+    readDraft(key) {
+        try {
+            const draft = JSON.parse(window.localStorage.getItem(key) || 'null');
+            if (!draft) return null;
+            if (Date.now() - draft.savedAt > DRAFT_DAYS * 86400000) { window.localStorage.removeItem(key); return null; }
+            return draft;
+        } catch { return null; }
+    }
+
+    scheduleDraft() {
+        clearTimeout(this.draftTimer);
+        this.draftTimer = setTimeout(() => this.storeDraft(), 600);
+    }
+
+    storeDraft() {
+        clearTimeout(this.draftTimer);
+        // A draft offered but not yet taken up is not overwritten by an untouched document.
+        if (!this.draftKey || !this.history || this.pendingDraft) return;
+        try {
+            // Appended PDFs are not kept: a draft would need their whole content.
+            if (!this.dirty || this.extraSources.length) {
+                window.localStorage.removeItem(this.draftKey);
+                this.draftKept = false;
+                return;
+            }
+            const assets = [];
+            for (const page of this.history.present.pages) {
+                for (const element of page.elements) {
+                    const asset = element.type === 'image' && this.assets.get(element.assetId);
+                    if (asset) assets.push([element.assetId, { mime: asset.mime, width: asset.width, height: asset.height, kind: asset.kind, data: toBase64(asset.bytes) }]);
+                }
+            }
+            window.localStorage.setItem(this.draftKey, JSON.stringify({ savedAt: Date.now(), title: this.title, saveMode: this.saveMode, state: this.history.present, assets }));
+            this.draftKept = true;
+        } catch {
+            // Storage full or unavailable: the editor keeps working without a draft.
+            this.draftKept = false;
+        }
+    }
+
+    clearDraft() {
+        try { if (this.draftKey) window.localStorage.removeItem(this.draftKey); } catch { /* storage unavailable */ }
+        this.draftKept = false;
+    }
+
+    get draftLabel() {
+        if (!this.pendingDraft) return '';
+        const savedAt = new Date(this.pendingDraft.savedAt);
+        return `Un brouillon non enregistré de ce fichier existe sur ce poste (${savedAt.toLocaleDateString('fr-FR')} à ${savedAt.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}).`;
+    }
+
+    handleRestoreDraft() {
+        const draft = this.pendingDraft;
+        this.pendingDraft = null;
+        try {
+            const pageCount = this.sourceHandle.pageCount;
+            if (!draft.state?.pages?.length || draft.state.pages.some((page) => (page.source || 0) !== 0 || page.sourceIndex >= pageCount)) {
+                throw new Error('Ce brouillon ne correspond plus au fichier.');
+            }
+            this.assets = new Map(draft.assets.map(([id, asset]) => [id, { ...asset, bytes: fromBase64(asset.data), url: `data:${asset.mime};base64,${asset.data}` }]));
+            // One undo step brings back the untouched file.
+            this.history = { past: [this.history.present], present: copyState(draft.state), future: [] };
+            this.title = draft.title || this.title;
+            if (draft.saveMode === 'copy' || (draft.saveMode === 'version' && this.canSaveVersion)) this.saveMode = draft.saveMode;
+            this.pageIndex = 0;
+            this.selectedId = null;
+            this.success = 'Brouillon repris. Pensez à enregistrer.';
+            this.draftKept = true;
+            this.scheduleRender();
+        } catch (error) {
+            this.clearDraft();
+            this.fail(error);
+        }
+    }
+
+    handleDiscardDraft() {
+        this.pendingDraft = null;
+        this.clearDraft();
     }
 
     scheduleRender() {
@@ -429,8 +593,9 @@ export default class PdfEditor extends NavigationMixin(LightningElement) {
     // Fits the page to the available width, between 40 % and 200 %.
     async fitZoom() {
         const available = (this.template.querySelector('.canvas-scroll')?.clientWidth || 0) - 32;
-        if (available <= 0 || !this.sourceHandle.viewport) return this.zoom;
-        const base = await this.sourceHandle.viewport(this.page.sourceIndex, 1, this.page.rotation);
+        const handle = this.handleFor(this.page.source);
+        if (available <= 0 || !handle?.viewport) return this.zoom;
+        const base = await handle.viewport(this.page.sourceIndex, 1, this.page.rotation);
         return Math.min(2, Math.max(0.4, Math.floor((available / base.width) * 100) / 100));
     }
 
@@ -442,10 +607,10 @@ export default class PdfEditor extends NavigationMixin(LightningElement) {
         this.rendering = true;
         try {
             if (this.zoomChoice === 'fit') this.zoom = await this.fitZoom();
-            const key = `${this.page.sourceIndex}:${this.page.rotation}:${this.zoom}`;
+            const key = `${this.page.source || 0}:${this.page.sourceIndex}:${this.page.rotation}:${this.zoom}`;
             if (key !== this.renderedKey) {
                 this.painting = true;
-                this.viewport = await this.sourceHandle.render(this.page.sourceIndex, canvas, this.zoom, this.page.rotation);
+                this.viewport = await this.handleFor(this.page.source).render(this.page.sourceIndex, canvas, this.zoom, this.page.rotation);
                 this.renderedKey = key;
             }
         } catch (error) { this.fail(error); }
@@ -467,6 +632,9 @@ export default class PdfEditor extends NavigationMixin(LightningElement) {
             this.savedDocumentId = null;
             this.message = '';
             this.success = '';
+            // Editing without taking up an older draft replaces it.
+            this.pendingDraft = null;
+            this.scheduleDraft();
             this.scheduleRender();
         } catch (error) { this.fail(error); }
     }
@@ -474,14 +642,46 @@ export default class PdfEditor extends NavigationMixin(LightningElement) {
     resetTool() {
         this.tool = 'select';
         this.pendingImage = null;
+        this.pendingText = '';
+        this.pendingLabel = '';
         this.showSignaturePad = false;
     }
 
     handleTool(event) { this.resetTool(); this.tool = event.currentTarget.dataset.tool; }
+    // Record values are read only when the menu is first opened for a record.
+    async handleFieldsOpen() {
+        const recordId = this.recordId;
+        if (!recordId || this.loadingFields || this.fieldsRecordId === recordId) return;
+        this.loadingFields = true;
+        try {
+            const fields = await listRecordFields({ recordId });
+            if (recordId !== this.recordId) return;
+            this.recordFields = fields;
+            this.fieldsRecordId = recordId;
+        } catch (error) { this.fail(error, 'Impossible de lire les champs de cet enregistrement.'); }
+        finally { this.loadingFields = false; }
+    }
+    get fieldOptions() {
+        if (this.fieldsRecordId !== this.recordId) return [];
+        return this.recordFields.map((field, index) => {
+            const preview = field.value.length > 40 ? `${field.value.slice(0, 39)}…` : field.value;
+            return { value: String(index), label: `${field.label} : ${preview.split('\n')[0]}` };
+        });
+    }
+    get noRecordFields() { return !this.loadingFields && this.fieldsRecordId === this.recordId && !this.recordFields.length; }
+    handleFieldSelect(event) {
+        const field = this.recordFields[Number(event.detail.value)];
+        if (!field) return;
+        this.resetTool();
+        // Text additions are limited to 10 lines of 200 characters.
+        this.pendingText = field.value.split(/\r?\n/).slice(0, 10).map((line) => line.slice(0, 200)).join('\n');
+        this.pendingLabel = field.label;
+        this.tool = 'text';
+    }
     handleStampSelect(event) { this.resetTool(); this.pendingStamp = event.detail.value; this.tool = 'stamp'; }
     handleCheckSelect(event) { this.resetTool(); this.pendingMark = event.detail.value; this.tool = 'check'; }
     handleSaveMode(event) { this.saveMode = event.detail.value; this.saveRequestId = null; this.savedDocumentId = null; this.success = ''; }
-    handleTitle(event) { this.title = event.target.value; this.saveRequestId = null; this.success = ''; }
+    handleTitle(event) { this.title = event.target.value; this.saveRequestId = null; this.success = ''; this.scheduleDraft(); }
     handlePrevious() { if (!this.previousDisabled) { this.pageIndex -= 1; this.selectedId = null; this.scheduleRender(); } }
     handleNext() { if (!this.nextDisabled) { this.pageIndex += 1; this.selectedId = null; this.scheduleRender(); } }
     handleZoom(event) {
@@ -502,6 +702,7 @@ export default class PdfEditor extends NavigationMixin(LightningElement) {
         this.saveRequestId = null;
         this.success = '';
         this.message = '';
+        this.scheduleDraft();
         this.scheduleRender();
     }
 
@@ -671,7 +872,7 @@ export default class PdfEditor extends NavigationMixin(LightningElement) {
             const base = { id, x, y, rotation: this.pageRotation };
             let element;
             if (this.tool === 'text') {
-                element = { ...base, type: 'text', text: 'Votre texte', fontSize: 16, color: '#182c37', font: 'Helvetica', bold: false };
+                element = { ...base, type: 'text', text: this.pendingText || 'Votre texte', fontSize: this.pendingText ? 11 : 16, color: '#182c37', font: 'Helvetica', bold: false };
             } else if (this.tool === 'stamp') {
                 element = { ...base, type: 'stamp', text: this.pendingStamp, fontSize: 14, color: '#c23934' };
             } else if (this.tool === 'check') {
@@ -796,15 +997,19 @@ export default class PdfEditor extends NavigationMixin(LightningElement) {
         try {
             const asVersion = this.saveAsVersion;
             if (!asVersion && (!this.title.trim() || this.title.length > 100)) throw new Error('Saisissez un nom de 1 à 100 caractères.');
-            const bytes = await this.engine.exportPdf(this.sourceBytes, this.history.present, this.assets);
+            const bytes = await this.engine.exportPdf(this.allSourceBytes(), this.history.present, this.assets);
             this.saveRequestId = this.saveRequestId || crypto.randomUUID();
             const request = { recordId: this.recordId, sourceVersionId: this.sourceVersionId, payload: toBase64(bytes), requestId: this.saveRequestId };
             const result = asVersion ? await saveNewVersion(request) : await saveCopy({ ...request, title: this.title });
             this.savedSnapshot = JSON.stringify(this.history.present);
             this.savedTitle = this.title;
             this.savedDocumentId = result.documentId;
-            // Further saves build on the version just created.
-            if (asVersion) this.sourceVersionId = result.versionId;
+            // Saved work needs no draft; further saves build on the version just created.
+            this.clearDraft();
+            if (asVersion) {
+                this.sourceVersionId = result.versionId;
+                this.draftKey = `${DRAFT_PREFIX}salesforce:${result.versionId}`;
+            }
             this.success = asVersion
                 ? 'Nouvelle version enregistrée. Les versions précédentes restent disponibles dans le fichier.'
                 : 'Nouveau fichier enregistré sur cet enregistrement.';

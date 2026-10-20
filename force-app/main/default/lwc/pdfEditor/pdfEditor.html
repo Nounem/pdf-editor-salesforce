@@ -9,6 +9,7 @@
         <div lwc:if={loadingEngine} class="loading" role="status">Préparation de l’éditeur PDF…</div>
         <div lwc:elseif={busy} class="loading" role="status">Traitement en cours…</div>
         <div lwc:if={notice} class="notice" role="status">{notice}</div>
+        <div lwc:if={pendingDraft} class="notice draft-notice" role="status">{draftLabel}<span class="notice-actions"><lightning-button label="Reprendre le brouillon" variant="brand" onclick={handleRestoreDraft}></lightning-button><lightning-button label="Ignorer" onclick={handleDiscardDraft}></lightning-button></span></div>
         <div lwc:if={missingRecord} class="notice" role="status">Ouvrez un PDF depuis votre ordinateur pour le modifier et le télécharger. Pour enregistrer une copie dans Salesforce, choisissez un enregistrement.</div>
         <div lwc:if={contextChanged} class="notice error" role="alert">L’enregistrement a changé. Revenez au précédent pour sauvegarder, ou ouvrez un nouveau document.</div>
         <div class="source-bar" onmouseover={handlePrefetchEngine} onfocusin={handlePrefetchEngine}>
@@ -42,6 +43,12 @@
                     <lightning-menu-item label="✓ Coche" value="check"></lightning-menu-item>
                     <lightning-menu-item label="✗ Croix" value="cross"></lightning-menu-item>
                 </lightning-button-menu>
+                <lightning-button-menu lwc:if={recordId} class="field-menu" label="Champ" alternative-text="Insérer un champ de l’enregistrement" onopen={handleFieldsOpen} onselect={handleFieldSelect} is-loading={loadingFields} disabled={disabled}>
+                    <template for:each={fieldOptions} for:item="field">
+                        <lightning-menu-item key={field.value} label={field.label} value={field.value}></lightning-menu-item>
+                    </template>
+                    <lightning-menu-item lwc:if={noRecordFields} label="Aucun champ renseigné" value="none" disabled></lightning-menu-item>
+                </lightning-button-menu>
                 <lightning-button label="Image" icon-name="utility:image" onclick={handleChooseImage} disabled={disabled}></lightning-button>
                 <input class="image-file" type="file" accept="image/png,image/jpeg" onchange={handleImage} disabled={disabled} aria-label="Ajouter une image PNG ou JPEG" hidden />
                 <lightning-button label="Surligner" data-tool="highlight" variant={highlightVariant} onclick={handleTool} disabled={disabled}></lightning-button>
@@ -56,6 +63,13 @@
                     <div class="page-controls"><lightning-button-icon icon-name="utility:chevronleft" alternative-text="Page précédente" onclick={handlePrevious} disabled={previousDisabled}></lightning-button-icon><lightning-button-icon icon-name="utility:chevronright" alternative-text="Page suivante" onclick={handleNext} disabled={nextDisabled}></lightning-button-icon></div>
                     <lightning-combobox label="Zoom" value={zoomValue} options={zoomOptions} onchange={handleZoom} disabled={disabled}></lightning-combobox>
                     <lightning-button label="Tourner de 90°" onclick={handleRotate} disabled={disabled}></lightning-button>
+                    <div class="page-controls">
+                        <lightning-button-icon icon-name="utility:arrowup" alternative-text="Déplacer la page avant" data-offset="-1" onclick={handleMovePage} disabled={moveBeforeDisabled}></lightning-button-icon>
+                        <lightning-button-icon icon-name="utility:arrowdown" alternative-text="Déplacer la page après" data-offset="1" onclick={handleMovePage} disabled={moveAfterDisabled}></lightning-button-icon>
+                    </div>
+                    <lightning-button label="Extraire cette page" onclick={handleExtractPage} disabled={disabled}></lightning-button>
+                    <lightning-button label="Ajouter un PDF" title="Ajouter les pages d’un autre PDF à la fin du document" onclick={handleChooseMerge} disabled={disabled}></lightning-button>
+                    <input class="merge-file" type="file" accept="application/pdf,.pdf" onchange={handleMergeFile} disabled={disabled} aria-label="Ajouter un PDF à la fin du document" hidden />
                     <lightning-button label="Retirer la page" variant="destructive-text" onclick={handleDeletePage} disabled={deletePageDisabled}></lightning-button>
                     <p class="muted">L’original n’est jamais perdu : enregistrez une nouvelle version (les précédentes restent consultables) ou un nouveau fichier.</p>
                 </aside>
