@@ -91,26 +91,31 @@ it('surfaces server access errors without opening an editor', async () => {
     expect(element.shadowRoot.querySelector('canvas')).toBeNull();
 });
 
-it('reports engine loading failures', async () => {
-    loadScript.mockRejectedValue(new Error('Bibliothèque indisponible'));
+it('does not load the PDF engine before a PDF is opened', async () => {
     const element = createElement('c-pdf-editor', { is: PdfEditor });
+    element.recordId = '001record';
     document.body.appendChild(element);
-    await flush();
-    expect(element.shadowRoot.querySelector('[role="alert"]').textContent).toContain('Bibliothèque indisponible');
+    await flush(); await flush();
+    expect(listRecordPdfs).toHaveBeenCalledWith({ recordId: '001record' });
+    expect(loadScript).not.toHaveBeenCalled();
+    element.shadowRoot.querySelector('.source-bar').dispatchEvent(new CustomEvent('mouseover'));
+    expect(loadScript).toHaveBeenCalledTimes(1);
 });
 
-it('identifies script load failures without a message and allows a retry', async () => {
-    loadScript.mockRejectedValueOnce(new Event('error')).mockResolvedValue();
-    const element = createElement('c-pdf-editor', { is: PdfEditor });
-    document.body.appendChild(element);
-    await flush();
+it('reports engine loading failures when opening a PDF and allows a retry', async () => {
+    loadScript.mockRejectedValueOnce(new Error('Bibliothèque indisponible')).mockResolvedValue();
+    const element = await mountLocalPdf();
     const button = (label) => [...element.shadowRoot.querySelectorAll('lightning-button')].find((item) => item.label === label);
-    expect(element.shadowRoot.querySelector('[role="alert"]').textContent).toContain('Impossible de charger le moteur PDF');
-    expect(button('Depuis mon ordinateur').disabled).toBe(true);
+    const alert = element.shadowRoot.querySelector('[role="alert"]').textContent;
+    expect(alert).toContain('Impossible de charger le moteur PDF');
+    expect(alert).toContain('Bibliothèque indisponible');
+    expect(element.shadowRoot.querySelector('canvas')).toBeNull();
+    expect(button('Depuis mon ordinateur').disabled).toBe(false);
     button('Réessayer le chargement').click();
     await flush(); await flush();
-    expect(button('Depuis mon ordinateur').disabled).toBe(false);
+    expect(loadScript).toHaveBeenCalledTimes(2);
     expect(element.shadowRoot.querySelector('[role="alert"]')).toBeNull();
+    expect(button('Réessayer le chargement')).toBeUndefined();
 });
 
 it('keeps local editing available after a file listing failure and retries the query', async () => {

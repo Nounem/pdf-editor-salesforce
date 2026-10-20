@@ -10,13 +10,14 @@ import saveNewVersion from '@salesforce/apex/PdfEditorController.saveNewVersion'
 import { MAX_BYTES, MAX_IMAGE_BYTES, MAX_IMAGE_PIXELS, createState, createHistory, commit, undo, redo, fromBase64, toBase64, boundedNumber, screenBox, visualAngle } from 'c/pdfEditState';
 
 const BUSY_MESSAGE = 'Attendez la fin du traitement avant de changer d’enregistrement.';
+const ENGINE_MESSAGE = 'Impossible de charger le moteur PDF. Vérifiez avec votre administrateur que Lightning Web Security (LWS) est activé, puis réessayez le chargement.';
 const MIN_RESIZE_PIXELS = 8;
 
 export default class PdfEditor extends NavigationMixin(LightningElement) {
     @api recordId;
-    initialized = false;
-    ready = false;
     initializationFailed = false;
+    loadingEngine = false;
+    enginePromise;
     filesFailed = false;
     busy = false;
     rendering = false;
@@ -62,11 +63,7 @@ export default class PdfEditor extends NavigationMixin(LightningElement) {
     }
 
     renderedCallback() {
-        if (!this.initialized) {
-            this.initialized = true;
-            this.initialize();
-        }
-        if (this.ready && this.filesRecordId !== this.recordId) this.refreshFiles();
+        if (this.filesRecordId !== this.recordId) this.refreshFiles();
         if (this.history && !this.rendering && this.renderedRevision !== this.renderRevision) this.renderPage();
     }
 
@@ -79,24 +76,34 @@ export default class PdfEditor extends NavigationMixin(LightningElement) {
         this.sourceBytes = null;
     }
 
-    async initialize() {
-        this.busy = true;
-        this.initializationFailed = false;
-        this.message = '';
-        try {
-            await loadScript(this, engineResource);
-            this.engine = window.LovePdfEngine;
-            if (!this.engine) throw new Error('Le moteur PDF n’a pas pu être initialisé.');
-            this.ready = true;
-            await this.refreshFiles();
-        } catch (error) {
-            this.initializationFailed = true;
-            this.fail(error, 'Impossible de charger le moteur PDF. Vérifiez avec votre administrateur que Lightning Web Security (LWS) est activé, puis réessayez le chargement.');
+    // The 2 MB engine takes seconds to start under LWS: load it only when a PDF is about to be
+    // opened, so record pages and the app page stay fast for users who do not edit a PDF.
+    ensureEngine() {
+        if (!this.enginePromise) {
+            this.loadingEngine = true;
+            this.initializationFailed = false;
+            this.enginePromise = loadScript(this, engineResource).then(() => {
+                if (!window.LovePdfEngine) throw new Error('Le moteur PDF n’a pas pu être initialisé.');
+                this.engine = window.LovePdfEngine;
+                if (this.message.startsWith(ENGINE_MESSAGE)) this.message = '';
+                return this.engine;
+            }).catch((error) => {
+                this.enginePromise = null;
+                this.initializationFailed = true;
+                this.fail(error, ENGINE_MESSAGE);
+                throw error;
+            }).finally(() => { this.loadingEngine = false; });
         }
-        finally { this.busy = false; }
+        return this.enginePromise;
     }
 
-    handleRetryEngine() { if (!this.busy) this.initialize(); }
+    // Starts loading in the background as soon as the user heads for an open button.
+    handlePrefetchEngine() { if (!this.engine && !this.initializationFailed) this.ensureEngine().catch(() => {}); }
+    handleRetryEngine() {
+        if (this.busy) return;
+        this.message = '';
+        this.ensureEngine().catch(() => {});
+    }
     handleRetryFiles() { if (!this.disabled) { this.message = ''; this.refreshFiles(); } }
 
     async refreshFiles() {
@@ -120,7 +127,7 @@ export default class PdfEditor extends NavigationMixin(LightningElement) {
     get hasDocument() { return Boolean(this.history); }
     get noDocument() { return !this.hasDocument; }
     // Rendering the preview never blocks the controls: only loading, saving and exporting do.
-    get disabled() { return this.busy || !this.ready; }
+    get disabled() { return this.busy; }
     get openDisabled() { return this.disabled || !this.selectedFile; }
     get saveDisabled() {
         return this.disabled || !this.history || !this.recordId || this.contextChanged
@@ -210,9 +217,10 @@ export default class PdfEditor extends NavigationMixin(LightningElement) {
         this.message = '';
         try {
             const recordId = this.recordId;
-            const file = await loadSmallPdf({ recordId, versionId: this.selectedFile });
+            // Download the file while the engine starts.
+            const [file] = await Promise.all([loadSmallPdf({ recordId, versionId: this.selectedFile }), this.ensureEngine()]);
             await this.openBytes(fromBase64(file.base64), file.title, file.versionId, recordId);
-        } catch (error) { this.fail(error); }
+        } catch (error) { if (!this.initializationFailed) this.fail(error); }
         finally { this.busy = false; }
     }
 
@@ -224,9 +232,10 @@ export default class PdfEditor extends NavigationMixin(LightningElement) {
         this.message = '';
         try {
             if (file.size > MAX_BYTES) throw new Error('Le fichier dépasse 1 Mo.');
+            await this.ensureEngine();
             const recordId = this.recordId;
             await this.openBytes(new Uint8Array(await file.arrayBuffer()), file.name.replace(/\.pdf$/i, ''), null, recordId);
-        } catch (error) { this.fail(error); }
+        } catch (error) { if (!this.initializationFailed) this.fail(error); }
         finally { this.busy = false; }
     }
 

@@ -6,11 +6,12 @@
         <lightning-button lwc:if={initializationFailed} label="Réessayer le chargement" onclick={handleRetryEngine} disabled={busy}></lightning-button>
         <lightning-button lwc:if={filesFailed} label="Réessayer la recherche des PDF" onclick={handleRetryFiles} disabled={disabled}></lightning-button>
         <div lwc:if={success} class="notice success" role="status">{success}<lightning-button lwc:if={savedDocumentId} label="Voir le fichier" variant="base" onclick={handleViewSaved}></lightning-button></div>
-        <div lwc:if={busy} class="loading" role="status">Traitement en cours…</div>
+        <div lwc:if={loadingEngine} class="loading" role="status">Préparation de l’éditeur PDF…</div>
+        <div lwc:elseif={busy} class="loading" role="status">Traitement en cours…</div>
         <div lwc:if={notice} class="notice" role="status">{notice}</div>
         <div lwc:if={missingRecord} class="notice" role="status">Ouvrez un PDF depuis votre ordinateur pour le modifier et le télécharger. Pour enregistrer une copie dans Salesforce, choisissez un enregistrement.</div>
         <div lwc:if={contextChanged} class="notice error" role="alert">L’enregistrement a changé. Revenez au précédent pour sauvegarder, ou ouvrez un nouveau document.</div>
-        <div class="source-bar">
+        <div class="source-bar" onmouseover={handlePrefetchEngine} onfocusin={handlePrefetchEngine}>
             <template lwc:if={recordId}>
                 <div class="source-picker"><lightning-combobox label="PDF de cet enregistrement (50 plus récents)" placeholder="Choisir un fichier Salesforce" value={selectedFile} options={files} onchange={handleFileSelection} disabled={disabled}></lightning-combobox></div>
                 <lightning-button label="Ouvrir" onclick={handleOpenSalesforce} disabled={openDisabled}></lightning-button>
