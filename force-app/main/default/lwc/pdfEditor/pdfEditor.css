@@ -60,7 +60,8 @@ canvas { display: block; }
 /* The paper stays white whatever the org theme, like the PDF page. */
 .signature-canvas { display: block; width: 100%; max-width: 480px; aspect-ratio: 3 / 1; background: #fff; border: 1px dashed var(--pdf-border); border-radius: var(--slds-g-radius-border-2, 0.25rem); cursor: crosshair; touch-action: none; }
 .signature-actions { display: flex; flex-wrap: wrap; gap: var(--slds-g-spacing-2, 0.5rem); margin-top: var(--slds-g-spacing-2, 0.5rem); }
-.mask-content { display: block; width: 100%; height: 100%; background: #fff; box-shadow: inset 0 0 0 1px var(--pdf-border); }
+/* Exactly what the PDF gets: plain white, no frame. The selection outline shows where it is. */
+.mask-content { display: block; width: 100%; height: 100%; background: #fff; }
 .resize-handle { position: absolute; width: 12px; height: 12px; right: -7px; bottom: -7px; background: var(--pdf-surface); border: 2px solid var(--pdf-accent); border-radius: 2px; cursor: nwse-resize; touch-action: none; }
 .property-empty { color: var(--pdf-muted); }
 .mask-note { margin-top: auto; background: var(--slds-g-color-warning-container-1, #fff7d6); color: var(--slds-g-color-on-warning-1, #5c4b00); border-radius: var(--slds-g-radius-border-2, 0.25rem); padding: var(--slds-g-spacing-3, 0.75rem); font-size: 0.75rem; }

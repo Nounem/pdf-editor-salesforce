@@ -125,8 +125,12 @@ export function toBase64(bytes) {
     return btoa(binary);
 }
 
+// A plain loop: much faster than Uint8Array.from with a callback on 1 MB files, especially under LWS.
 export function fromBase64(value) {
-    return Uint8Array.from(atob(value), (char) => char.charCodeAt(0));
+    const binary = atob(value);
+    const bytes = new Uint8Array(binary.length);
+    for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+    return bytes;
 }
 
 export function boundedNumber(value, minimum, maximum) {

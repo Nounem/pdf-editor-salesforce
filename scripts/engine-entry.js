@@ -1,6 +1,6 @@
 import { getDocument, version } from 'pdfjs-dist/build/pdf.mjs';
 import { WorkerMessageHandler } from 'pdfjs-dist/build/pdf.worker.mjs';
-import { LineCapStyle, PDFDocument, PDFName, PDFSignature, StandardFonts, degrees, rgb } from 'pdf-lib';
+import { LineCapStyle, PDFDocument, PDFName, PDFSignature, StandardFontEmbedder, StandardFonts, degrees, rgb } from 'pdf-lib';
 
 // Deliberately use PDF.js' in-process worker for this small-file prototype.
 // No blob worker URL, runtime import or CDN is required inside LWS.
@@ -27,6 +27,13 @@ function fontName(family, bold) {
     return (FONTS[family] || FONTS.Helvetica)[bold ? 1 : 0];
 }
 
+// Metrics of a standard font, decoded on first use and kept for the session.
+const metricsCache = new Map();
+function fontMetrics(name) {
+    if (!metricsCache.has(name)) metricsCache.set(name, StandardFontEmbedder.for(name));
+    return metricsCache.get(name);
+}
+
 function fontCache(document) {
     const cache = new Map();
     return async (family, bold) => {
@@ -43,6 +50,19 @@ function along(element, a, b) {
         x: element.x + a * Math.cos(angle) - b * Math.sin(angle),
         y: element.y + a * Math.sin(angle) + b * Math.cos(angle)
     };
+}
+
+// Bytes from the page (a file, a canvas…) can reach the engine as objects of another realm.
+// Under Lightning Web Security each read of such an object crosses the security boundary, and
+// PDF parsing reads every byte many times: copy them once into an engine-owned buffer.
+function ownBytes(bytes) {
+    const length = bytes.length;
+    const copy = new Uint8Array(length);
+    const chunk = 65536;
+    for (let offset = 0; offset < length; offset += chunk) {
+        copy.set(Array.prototype.slice.call(bytes, offset, Math.min(offset + chunk, length)), offset);
+    }
+    return copy;
 }
 
 async function inspect(bytes) {
@@ -83,8 +103,9 @@ function point(viewport, x, y) {
 
 // `source` is the opened PDF, or an array of PDFs when others were appended to it:
 // each page refers to its PDF by `source` (0 when absent) and to its page by `sourceIndex`.
-async function exportPdf(source, state, assets) {
-    const sources = Array.isArray(source) ? source : [source];
+// `maxBytes` caps the result: 1 MB by default for Salesforce saves; downloads may allow more.
+async function exportPdf(source, state, assets, { maxBytes = MAX_BYTES } = {}) {
+    const sources = (Array.isArray(source) ? source : [source]).map(ownBytes);
     if (!state.pages.length || state.pages.length > MAX_PAGES) throw new Error('Nombre de pages invalide.');
     const originals = [];
     for (const bytes of sources) {
@@ -101,10 +122,21 @@ async function exportPdf(source, state, assets) {
     output.setModificationDate(original.getModificationDate() || new Date(0));
     const font = fontCache(output);
     const imageCache = new Map();
+    // Copy all pages of a source in one call: fonts and images shared between pages are then
+    // copied once. Page by page, a 147 kB file with a shared image grew to 874 kB.
+    const copies = new Map();
+    for (const [index, document] of originals.entries()) {
+        const wanted = [...new Set(state.pages.filter((item) => (item.source || 0) === index).map((item) => item.sourceIndex))];
+        if (wanted.some((pageIndex) => pageIndex >= document.getPageCount())) throw new Error('Page source introuvable.');
+        const pages = wanted.length ? await output.copyPages(document, wanted) : [];
+        wanted.forEach((pageIndex, position) => copies.set(`${index}:${pageIndex}`, pages[position]));
+    }
     for (const item of state.pages) {
-        const from = originals[item.source || 0];
-        if (!from || item.sourceIndex >= from.getPageCount()) throw new Error('Page source introuvable.');
-        const [page] = await output.copyPages(from, [item.sourceIndex]);
+        const key = `${item.source || 0}:${item.sourceIndex}`;
+        const page = copies.get(key);
+        if (!page) throw new Error('Page source introuvable.');
+        // A page object can only be placed once.
+        copies.delete(key);
         output.addPage(page);
         page.setRotation(degrees((page.getRotation().angle + item.rotation) % 360));
         for (const element of item.elements) {
@@ -145,26 +177,31 @@ async function exportPdf(source, state, assets) {
     output.setProducer('LovePdfSales — prototype');
     output.setCreator('LovePdfSales');
     const bytes = await output.save();
-    if (bytes.length > MAX_BYTES) throw new Error('Le résultat dépasse 1 Mo. Réduisez les images ou les ajouts avant de réessayer.');
+    if (bytes.length > maxBytes) {
+        throw new Error(`Le résultat dépasse ${Math.round(maxBytes / 1000000)} Mo. Réduisez les images ou les ajouts avant de réessayer.`);
+    }
     return bytes;
 }
 
-async function open(bytes) {
+async function open(input) {
+    const bytes = ownBytes(input);
+    // Kept on the handle to diagnose slow opening in an org (milliseconds per step).
+    const timings = {};
+    let started = performance.now();
     const inspected = await inspect(bytes);
+    timings.checks = Math.round(performance.now() - started);
+    started = performance.now();
     const task = getDocument({
         data: bytes.slice(), isEvalSupported: false, enableXfa: false,
         useSystemFonts: true, disableFontFace: false, isOffscreenCanvasSupported: false,
         useWasm: false, isImageDecoderSupported: false, stopAtErrors: true
     });
     const pdf = await task.promise;
-    // Standard fonts carry no file data: embedding all six only loads their metrics.
-    const fonts = new Map();
-    for (const pair of Object.values(FONTS)) {
-        for (const name of pair) fonts.set(name, await inspected.embedFont(name));
-    }
+    timings.parse = Math.round(performance.now() - started);
     return {
         pageCount: pdf.numPages,
         annotations: hasAnnotations(inspected),
+        timings,
         async viewport(index, scale, rotation) {
             const page = await pdf.getPage(index + 1);
             return page.getViewport({ scale, rotation: (page.rotate + rotation) % 360 });
@@ -189,11 +226,11 @@ async function open(bytes) {
             if (!String(text).trim() || lines.length > 10 || lines.some((line) => line.length > 200) || /\r/.test(text)) {
                 throw new Error('Saisissez de 1 à 10 lignes de 200 caractères maximum.');
             }
-            const metrics = fonts.get(fontName(family, bold));
+            const metrics = fontMetrics(fontName(family, bold));
             try {
                 return {
                     width: Math.max(...lines.map((line) => metrics.widthOfTextAtSize(line, size))),
-                    height: metrics.heightAtSize(size, { descender: false }) + (lines.length - 1) * LINE_HEIGHT * size
+                    height: metrics.heightOfFontAtSize(size, { descender: false }) + (lines.length - 1) * LINE_HEIGHT * size
                 };
             } catch {
                 throw new Error('Ce caractère n’est pas pris en charge. Utilisez du texte latin dans cette version.');

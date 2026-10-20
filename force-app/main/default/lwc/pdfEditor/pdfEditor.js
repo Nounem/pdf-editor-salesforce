@@ -29,11 +29,16 @@ const MARK_PATHS = { check: 'M15 50 L40 75 L85 20', cross: 'M20 20 L80 80 M20 80
 const RESIZABLE = new Set(['image', 'mask', 'highlight', 'check']);
 const KEEP_RATIO = new Set(['image', 'check']);
 const EDITABLE_TARGETS = /^(INPUT|TEXTAREA|SELECT|LIGHTNING-INPUT|LIGHTNING-TEXTAREA|LIGHTNING-COMBOBOX)$/;
+const DOWNLOAD_MAX_BYTES = 20000000;
 const DRAFT_PREFIX = 'lovepdf-draft:';
 const DRAFT_DAYS = 7;
 
 export default class PdfEditor extends NavigationMixin(LightningElement) {
     @api recordId;
+    // Set by the dedicated app page: users come there to edit a PDF, so the engine may start
+    // as soon as a record with PDFs is shown. Record pages leave it off to stay light.
+    @api prefetchEngine = false;
+    busyLabel = '';
     initializationFailed = false;
     loadingEngine = false;
     enginePromise;
@@ -177,6 +182,7 @@ export default class PdfEditor extends NavigationMixin(LightningElement) {
             const files = await listRecordPdfs({ recordId });
             if (recordId !== this.recordId) return;
             this.files = files.map((file) => ({ label: `${file.title} · ${Math.ceil(file.size / 1000)} ko`, value: file.versionId }));
+            if (this.prefetchEngine && this.files.length) this.handlePrefetchEngine();
         } catch (error) {
             if (recordId !== this.recordId) return;
             this.filesFailed = true;
@@ -323,13 +329,28 @@ export default class PdfEditor extends NavigationMixin(LightningElement) {
         if (this.disabled || !await this.confirmDiscard()) return;
         this.busy = true;
         this.message = '';
+        const started = Date.now();
         try {
             const recordId = this.recordId;
+            this.busyLabel = 'Téléchargement du PDF…';
             // Download the file while the engine starts.
             const [file] = await Promise.all([loadSmallPdf({ recordId, versionId: this.selectedFile }), this.ensureEngine()]);
+            const downloaded = Date.now();
             await this.openBytes(fromBase64(file.base64), file.title, file.versionId, recordId);
+            this.logTimings(started, { téléchargementEtMoteur: downloaded - started });
         } catch (error) { if (!this.initializationFailed) this.fail(error); }
-        finally { this.busy = false; }
+        finally { this.busy = false; this.busyLabel = ''; }
+    }
+
+    // One line per opening in the browser console, to diagnose slowness in an org.
+    logTimings(started, extra) {
+        // eslint-disable-next-line no-console
+        console.info('LovePdfSales — ouverture du PDF (ms)', JSON.stringify({ total: Date.now() - started, ...extra, ...(this.sourceHandle?.timings || {}) }));
+    }
+
+    get busyText() {
+        if (this.loadingEngine) return 'Préparation de l’éditeur PDF (première ouverture uniquement)…';
+        return this.busyLabel || 'Traitement en cours…';
     }
 
     async handleLocalFile(event) {
@@ -338,13 +359,16 @@ export default class PdfEditor extends NavigationMixin(LightningElement) {
         if (!file || this.disabled || !await this.confirmDiscard()) return;
         this.busy = true;
         this.message = '';
+        const started = Date.now();
         try {
             if (file.size > MAX_BYTES) throw new Error('Le fichier dépasse 1 Mo.');
             await this.ensureEngine();
+            const engineReady = Date.now();
             const recordId = this.recordId;
             await this.openBytes(new Uint8Array(await file.arrayBuffer()), file.name.replace(/\.pdf$/i, ''), null, recordId);
+            this.logTimings(started, { moteur: engineReady - started });
         } catch (error) { if (!this.initializationFailed) this.fail(error); }
-        finally { this.busy = false; }
+        finally { this.busy = false; this.busyLabel = ''; }
     }
 
     async confirmDiscard() {
@@ -410,7 +434,8 @@ export default class PdfEditor extends NavigationMixin(LightningElement) {
         this.message = '';
         let url;
         try {
-            const bytes = await this.engine.exportPdf(this.allSourceBytes(), state, this.assets);
+            // The 1 MB cap only protects Salesforce saves; a download can be larger.
+            const bytes = await this.engine.exportPdf(this.allSourceBytes(), state, this.assets, { maxBytes: DOWNLOAD_MAX_BYTES });
             url = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
             const link = this.template.querySelector('.download-link');
             link.href = url;
@@ -470,6 +495,7 @@ export default class PdfEditor extends NavigationMixin(LightningElement) {
     }
 
     async openBytes(bytes, name, sourceVersionId, recordId) {
+        this.busyLabel = 'Lecture du PDF…';
         const handle = await this.engine.open(bytes);
         this.storeDraft();
         await this.sourceHandle?.destroy();

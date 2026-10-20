@@ -64,8 +64,7 @@ try {
     page.on('pageerror', (error) => { failures.push(error.message); console.error(error.stack); });
     await page.goto(`http://127.0.0.1:${server.address().port}/`);
     const ready = async () => {
-        await page.getByText('Traitement en cours…', { exact: true }).waitFor({ state: 'hidden' });
-        await page.getByText('Préparation de l’éditeur PDF…', { exact: true }).waitFor({ state: 'hidden' });
+        await page.locator('.loading').first().waitFor({ state: 'hidden' });
         await page.getByText('Préparation de l’aperçu…', { exact: true }).waitFor({ state: 'hidden' });
         await page.waitForFunction(() => document.fonts.status === 'loaded');
         const alerts = await page.getByRole('alert').allTextContents();

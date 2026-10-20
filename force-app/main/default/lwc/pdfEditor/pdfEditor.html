@@ -6,8 +6,8 @@
         <lightning-button lwc:if={initializationFailed} label="Réessayer le chargement" onclick={handleRetryEngine} disabled={busy}></lightning-button>
         <lightning-button lwc:if={filesFailed} label="Réessayer la recherche des PDF" onclick={handleRetryFiles} disabled={disabled}></lightning-button>
         <div lwc:if={success} class="notice success" role="status">{success}<lightning-button lwc:if={savedDocumentId} label="Voir le fichier" variant="base" onclick={handleViewSaved}></lightning-button></div>
-        <div lwc:if={loadingEngine} class="loading" role="status">Préparation de l’éditeur PDF…</div>
-        <div lwc:elseif={busy} class="loading" role="status">Traitement en cours…</div>
+        <div lwc:if={busy} class="loading" role="status">{busyText}</div>
+        <div lwc:elseif={loadingEngine} class="loading" role="status">{busyText}</div>
         <div lwc:if={notice} class="notice" role="status">{notice}</div>
         <div lwc:if={pendingDraft} class="notice draft-notice" role="status">{draftLabel}<span class="notice-actions"><lightning-button label="Reprendre le brouillon" variant="brand" onclick={handleRestoreDraft}></lightning-button><lightning-button label="Ignorer" onclick={handleDiscardDraft}></lightning-button></span></div>
         <div lwc:if={missingRecord} class="notice" role="status">Ouvrez un PDF depuis votre ordinateur pour le modifier et le télécharger. Pour enregistrer une copie dans Salesforce, choisissez un enregistrement.</div>

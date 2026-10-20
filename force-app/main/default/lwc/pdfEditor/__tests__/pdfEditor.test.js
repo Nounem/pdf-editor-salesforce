@@ -465,3 +465,12 @@ it('drops a draft the user chooses to ignore', async () => {
     expect(element.shadowRoot.querySelector('.draft-notice')).toBeNull();
     expect(window.localStorage.getItem('lovepdf-draft:salesforce:068source')).toBeNull();
 });
+
+it('starts the engine in the background on the app page once the record has PDFs', async () => {
+    const element = createElement('c-pdf-editor', { is: PdfEditor });
+    element.prefetchEngine = true;
+    element.recordId = '001record';
+    document.body.appendChild(element);
+    await flush(); await flush();
+    expect(loadScript).toHaveBeenCalledTimes(1);
+});

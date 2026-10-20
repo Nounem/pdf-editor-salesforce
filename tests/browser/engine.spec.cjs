@@ -170,6 +170,31 @@ test('merges pages from two PDFs in the chosen order', async ({ page }) => {
     expect(merged.getPages().map((item) => item.getSize().width)).toEqual([200, 300, 400]);
 });
 
+test('shared images are copied once, and downloads may exceed the 1 MB save limit', async ({ page }) => {
+    await openEnginePage(page);
+    const source = await PDFDocument.create();
+    // A 1×1 PNG scaled up: what matters is that all six pages share the same image object.
+    const png = Uint8Array.from(Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aG2UAAAAASUVORK5CYII=', 'base64'));
+    const image = await source.embedPng(png);
+    for (let index = 0; index < 6; index += 1) source.addPage([300, 300]).drawImage(image, { x: 0, y: 0, width: 300, height: 300 });
+    const bytes = Array.from(await source.save());
+    const result = await page.evaluate(async (input) => {
+        const engine = window.LovePdfEngine;
+        const pages = Array.from({ length: 6 }, (_, index) => ({ id: `p${index}`, sourceIndex: index, rotation: 0, elements: [] }));
+        const output = await engine.exportPdf(new Uint8Array(input), { pages }, new Map());
+        let refused = '';
+        try { await engine.exportPdf(new Uint8Array(input), { pages }, new Map(), { maxBytes: 10 }); } catch (error) { refused = error.message; }
+        return { length: output.length, refused };
+    }, bytes);
+    const exported = await PDFDocument.load(new Uint8Array(await page.evaluate(async (input) => Array.from(await window.LovePdfEngine.exportPdf(new Uint8Array(input),
+        { pages: [{ id: 'a', sourceIndex: 5, rotation: 0, elements: [] }, { id: 'b', sourceIndex: 0, rotation: 0, elements: [] }] }, new Map())), bytes)));
+    let images = 0;
+    for (const [, object] of exported.context.enumerateIndirectObjects()) if (object.dict?.get(PDFName.of('Subtype'))?.toString() === '/Image') images += 1;
+    expect(images).toBe(1);
+    expect(result.length).toBeLessThan(bytes.length * 1.5);
+    expect(result.refused).toContain('dépasse');
+});
+
 test('interactive PDFs are rejected before reconstruction', async ({ page }) => {
     const document = await PDFDocument.create();
     const pdfPage = document.addPage();
